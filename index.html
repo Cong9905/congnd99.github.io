@@ -146,9 +146,11 @@
             let data;
             try {
                 data = await fetchKlines("BTCUSDT", interval, limit);
+                if (!data.length) throw new Error("Không có dữ liệu nến.");
                 renderChart(data); // Render biểu đồ sau khi lấy dữ liệu
             } catch (error) {
                 console.error("Error fetching data:", error);
+                document.getElementById("result").innerText = "Có lỗi xảy ra khi lấy dữ liệu.";
                 return;
             }
 
@@ -214,8 +216,8 @@
             predictionInterval = setInterval(syncPrediction, (document.getElementById("chartInterval").value === "30s" ? 30000 : 60000));
         }
 
-        function countdownTimer(start, duration) {
-            let timeRemaining = duration;
+        function countdownTimer(initialTime, totalTime) {
+            let timeRemaining = totalTime;
 
             countdownInterval = setInterval(() => {
                 if (timeRemaining <= 0) {
