@@ -66,23 +66,25 @@
         <label for="option">Chọn tính toán:</label>
         <select id="option">
             <option value="5">5 nến gần nhất</option>
+            <option value="3">3 nến gần nhất</option>
         </select>
         <button id="predictButton" onclick="startAutoPrediction()">Bắt đầu dự đoán liên tục</button>
         <button id="resetButton" onclick="resetPrediction()">Đặt lại</button>
     </div>
 
-    <div class="timer" id="countdownTimer">Thời gian đến dự đoán: 0s</div>
+    <div class="timer" id="countdownTimer">Thời gian đến dự đoán: 30s</div>
     <div id="result"></div>
     <p id="accuracy"></p>
-    <p id="learningMessage"></p> <!-- Thông báo học hỏi ở cuối dòng -->
-    <div id="indicators"></div> <!-- Khu vực hiển thị chỉ số RSI và Volume -->
+    <p id="learningMessage"></p>
 
     <script>
         let correctPredictions = 0;
         let totalPredictions = 0;
         let predictionInterval;
         let countdownInterval;
-        const predictionOffset = 7000; // Đưa ra dự đoán trước 7 giây
+        const countdownDuration = 30; // Thời gian đếm ngược ban đầu
+        const predictionOffset = 5000; // Đưa ra dự đoán trước 5 giây
+        let nextPredictionTime; // Thời gian dự đoán tiếp theo
         const resultsHistory = [];
         const lossThreshold = 0.2; // Ngưỡng thua
         let currentRsiThreshold = { upper: 70, lower: 30 }; // Ngưỡng RSI ban đầu
@@ -133,13 +135,6 @@
             return avgVolume;
         }
 
-        function getOverallTrend(data) {
-            const closes = data.map(candle => parseFloat(candle[4]));
-            const latestClose = closes[closes.length - 1];
-            const previousClose = closes[closes.length - 2];
-            return latestClose > previousClose ? "Tăng" : "Giảm"; // Dựa vào giá đóng gần nhất
-        }
-
         function predictTrend(rsi, avgVolume, lastVolume) {
             if (rsi > currentRsiThreshold.upper) {
                 return ["Giảm", 70];
@@ -176,9 +171,8 @@
             const rsi = calculateRSI(prices);
             const avgVolume = analyzeVolume(data);
             const lastVolume = parseFloat(data[data.length - 1][5]);
-            const overallTrend = getOverallTrend(data);
 
-            console.log(`RSI: ${rsi.toFixed(2)}, Avg Volume: ${avgVolume}, Last Volume: ${lastVolume}, Xu hướng: ${overallTrend}`);
+            console.log(`RSI: ${rsi.toFixed(2)}, Avg Volume: ${avgVolume}, Last Volume: ${lastVolume}`);
 
             const [trend, probability] = predictTrend(rsi, avgVolume, lastVolume);
 
@@ -187,64 +181,63 @@
             const currentOpen = parseFloat(data[data.length - 1][1]);   // Giá mở của nến hiện tại
             const actualDirection = (currentOpen > previousClose) ? "Tăng" : "Giảm"; // Xu hướng thực tế dựa trên mở và đóng
 
-            const isCorrect = (trend.includes(actualDirection)); // So sánh xu hướng dự đoán với xu hướng thực tế
-            if (isCorrect) {
-                correctPredictions++;
-            }
-
             totalPredictions++;
-
-            // Hiển thị kết quả dự đoán và chỉ số
-            document.getElementById("indicators").innerHTML = `
-                <strong>Chỉ số:</strong> RSI: ${rsi.toFixed(2)}, Volume: ${lastVolume}, Xu hướng: ${overallTrend}<br>
-                Dự đoán: ${trend} (${probability}%)<br>
-            `;
-            if (trend.includes("Tăng")) {
-                document.getElementById("result").innerHTML += `<span class="arrow up-arrow">↑</span>`;
-            } else if (trend.includes("Giảm")) {
-                document.getElementById("result").innerHTML += `<span class="arrow down-arrow">↓</span>`;
+            if (actualDirection === trend) {
+                correctPredictions++;
+                resultsHistory.push({ direction: trend, predicted: true });
             } else {
-                document.getElementById("result").innerHTML += "Không xác định.";
+                resultsHistory.push({ direction: trend, predicted: false });
             }
 
-            // Cập nhật độ chính xác
-            const accuracyRate = (totalPredictions > 0) ? (correctPredictions / totalPredictions * 100).toFixed(2) : 0;
-            document.getElementById("accuracy").innerText = `Tổng số dự đoán: ${totalPredictions}, Số đúng: ${correctPredictions}, Tỷ lệ: ${accuracyRate}%`;
+            const accuracy = (correctPredictions / totalPredictions) * 100;
+            document.getElementById("result").innerHTML = `<span class="arrow ${trend === "Tăng" ? "up-arrow" : "down-arrow"}">${trend}</span> - Xác suất: ${probability}%`;
+            document.getElementById("accuracy").innerHTML = `Tổng số dự đoán: ${totalPredictions}, Đúng: ${correctPredictions}, Sai: ${totalPredictions - correctPredictions}, Tỷ lệ chính xác: ${accuracy.toFixed(2)}%`;
+            document.getElementById("learningMessage").innerHTML = "Bot đang học hỏi từ kết quả...";
 
-            // Cập nhật thông điệp học hỏi
-            document.getElementById("learningMessage").innerText = "Bot đang học hỏi từ các mô hình dự đoán.";
+            // Kiểm tra nếu tỷ lệ thắng dưới ngưỡng, đưa ra cảnh báo
+            if (accuracy < 75) {
+                alert("Cảnh báo: Tỷ lệ thắng hiện tại dưới 75%. Vui lòng xem xét lại chiến lược dự đoán.");
+            }
+
+            // Cập nhật ngưỡng RSI nếu tỷ lệ thắng giảm
+            if (totalPredictions > 10 && accuracy < 75) {
+                currentRsiThreshold.upper += 5; // Tăng ngưỡng RSI lên để giảm dự đoán Tăng
+                currentRsiThreshold.lower -= 5; // Giảm ngưỡng RSI xuống để giảm dự đoán Giảm
+            }
         }
 
         function startAutoPrediction() {
+            const countdown = countdownDuration; // 30 giây đếm ngược
+            let timeRemaining = countdown;
+            let predictionDelay = 0; // Thời gian trì hoãn để đưa ra dự đoán
+
+            // Xóa interval nếu có đang chạy
             clearInterval(predictionInterval);
             clearInterval(countdownInterval);
 
-            const intervalSelect = document.getElementById("chartInterval").value;
-            const isThirtySeconds = (intervalSelect === "30s");
-
-            // Kiểm tra thời gian đóng nến
-            const countdownDuration = isThirtySeconds ? 30 : 60;
-
-            // Đặt lại thời gian để chuẩn bị cho vòng đếm tiếp theo
-            countdownTimer(countdownDuration - 7); // Bắt đầu đếm ngược trước 7 giây
-            predictionInterval = setInterval(() => {
-                makePrediction(5);
-                countdownTimer(countdownDuration);
-            }, countdownDuration * 1000); // Tự động dự đoán sau mỗi 30 giây hoặc 1 phút
-        }
-
-        function countdownTimer(duration) {
-            let countdownTime = duration;
-
+            // Bắt đầu đếm ngược
             countdownInterval = setInterval(() => {
-                document.getElementById("countdownTimer").innerText = `Thời gian đến dự đoán: ${countdownTime}s`;
-                countdownTime--;
+                document.getElementById("countdownTimer").innerText = `Thời gian đến dự đoán: ${timeRemaining}s`;
+                timeRemaining--;
 
-                if (countdownTime < 0) {
+                // Nếu thời gian còn lại là 0, thực hiện dự đoán
+                if (timeRemaining < 0) {
                     clearInterval(countdownInterval);
-                    document.getElementById("countdownTimer").innerText = "Thời gian đến dự đoán: 0s";
-                    // Đặt lại thời gian để chuẩn bị cho vòng đếm tiếp theo
-                    countdownTime = duration;
+                    timeRemaining = countdown; // Đặt lại thời gian còn lại cho lần tiếp theo
+                    nextPredictionTime = new Date(Date.now() + predictionDelay); // Cập nhật thời gian dự đoán tiếp theo
+                }
+
+                // Thực hiện dự đoán trong khoảng 5-7 giây trước khi nến đóng
+                if (timeRemaining <= 7 && timeRemaining >= 0) {
+                    predictionDelay = nextPredictionTime.getTime() - Date.now();
+                    makePrediction(document.getElementById("option").value);
+                }
+            }, 1000);
+
+            // Bắt đầu dự đoán tự động
+            predictionInterval = setInterval(() => {
+                if (timeRemaining <= 7 && timeRemaining >= 0) {
+                    makePrediction(document.getElementById("option").value);
                 }
             }, 1000);
         }
@@ -254,14 +247,10 @@
             clearInterval(countdownInterval);
             correctPredictions = 0;
             totalPredictions = 0;
-            resultsHistory.length = 0; // Đặt lại lịch sử kết quả
-            currentRsiThreshold = { upper: 70, lower: 30 }; // Đặt lại ngưỡng RSI
-
-            document.getElementById("result").innerText = "";
-            document.getElementById("accuracy").innerText = "";
-            document.getElementById("learningMessage").innerText = ""; // Xóa thông điệp học hỏi
-            document.getElementById("countdownTimer").innerText = "Thời gian đến dự đoán: 0s";
-            document.getElementById("indicators").innerHTML = ""; // Xóa thông tin chỉ số
+            document.getElementById("result").innerText = '';
+            document.getElementById("accuracy").innerText = '';
+            document.getElementById("learningMessage").innerText = '';
+            document.getElementById("countdownTimer").innerText = 'Thời gian đến dự đoán: 30s';
         }
     </script>
 </body>
