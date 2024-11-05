@@ -1,176 +1,141 @@
 <!DOCTYPE html>
-<html lang="vi">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dự Đoán Xu Hướng BTC/USDT</title>
-    <style>
-        .arrow {
-            font-size: 30px;
-            font-weight: bold;
-        }
-        .up-arrow {
-            color: green;
-        }
-        .down-arrow {
-            color: red;
-        }
-        canvas {
-            max-width: 100%; /* Cho phép canvas co dãn theo chiều rộng của màn hình */
-            height: auto;    /* Chiều cao tự động */
-        }
-    </style>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom"></script>
+    <title>BTC/USDT Chart with Auto Prediction</title>
+    <script src="https://s3.tradingview.com/tv.js"></script>
 </head>
 <body>
-    <h1>Dự Đoán Xu Hướng BTC/USDT</h1>
-    <label for="chartInterval">Chọn khoảng thời gian:</label>
-    <select id="chartInterval">
-        <option value="1m">1 Phút</option>
-        <option value="30s">30 Giây</option>
-    </select>
+    <h1>BTC/USDT Chart</h1>
 
-    <label for="option">Chọn số nến để tính toán:</label>
-    <select id="option">
-        <option value="14">14 Nến</option>
-        <option value="3">3 Nến</option>
-    </select>
+    <!-- Biểu đồ TradingView -->
+    <div class="tradingview-widget-container">
+        <div id="tradingview_12345"></div>
+        <script type="text/javascript">
+            new TradingView.widget({
+                "container_id": "tradingview_12345",
+                "symbol": "BINANCE:BTCUSDT",
+                "interval": "30S",
+                "timezone": "Etc/UTC",
+                "theme": "light",
+                "style": "1",
+                "locale": "en",
+                "toolbar_bg": "#f1f3f6",
+                "enable_publishing": false,
+                "withdateranges": true,
+                "hide_side_toolbar": false,
+                "allow_symbol_change": true,
+                "studies": ["BB@tv-basicstudies"],
+                "show_popup_button": true,
+                "popup_width": "1000",
+                "popup_height": "650",
+                "no_referral_id": true,
+            });
+        </script>
+    </div>
 
-    <button onclick="startAutoPrediction()">Bắt đầu dự đoán liên tục</button>
-    <div id="countdownTimer">Thời gian đến dự đoán: 0s</div>
+    <!-- Lựa chọn thời gian và tính toán -->
+    <div>
+        <label for="chartInterval">Chọn thời gian biểu đồ:</label>
+        <select id="chartInterval">
+            <option value="30s">30 Giây</option>
+            <option value="1m">1 Phút</option>
+        </select>
+
+        <label for="provider">Chọn nhà cung cấp dữ liệu cho 30 giây:</label>
+        <select id="provider">
+            <option value="binance">Binance</option>
+            <option value="other">Các trang khác</option>
+        </select>
+
+        <label for="option">Chọn tính toán:</label>
+        <select id="option">
+            <option value="14">14 nến gần nhất</option>
+            <option value="3">3 nến gần nhất</option>
+        </select>
+        <button id="predictButton" onclick="startAutoPrediction()">Bắt đầu dự đoán liên tục</button>
+    </div>
+
     <div id="result"></div>
-    <div id="accuracy"></div>
-    <canvas id="candleChart"></canvas>
+    <p id="accuracy"></p>
 
     <script>
-        let predictionInterval;
-        let countdownInterval;
-        let totalPredictions = 0;
         let correctPredictions = 0;
-        let candleChart;
+        let totalPredictions = 0;
+        let predictionInterval;
+        const predictionOffset = 5000; // Đưa ra dự đoán trước 5 giây
 
         async function fetchKlines(symbol, interval, limit) {
-            const response = await fetch(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`);
+            const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
+            const response = await fetch(url);
+            if (!response.ok) {
+                throw new Error(`Error fetching data: ${response.statusText}`);
+            }
             const data = await response.json();
             return data;
         }
 
-        function calculateRSI(prices, period = 14) {
-            const gains = [];
-            const losses = [];
-            for (let i = 1; i < prices.length; i++) {
-                const difference = prices[i] - prices[i - 1];
-                if (difference > 0) gains.push(difference);
-                else losses.push(-difference);
+        function convertTo30sCandles(data) {
+            const thirtySecondCandles = [];
+            for (let i = 0; i < data.length; i++) {
+                const open = parseFloat(data[i][1]);
+                const close = parseFloat(data[i][4]);
+                const high = Math.max(open, close, parseFloat(data[i][2]), parseFloat(data[i][3]));
+                const low = Math.min(open, close, parseFloat(data[i][2]), parseFloat(data[i][3]));
+                const volume = parseFloat(data[i][5]);
+
+                // Thêm 2 nến 30 giây cho mỗi nến 1 phút
+                thirtySecondCandles.push([data[i][0], open, high, low, close / 2, volume / 2]);
+                thirtySecondCandles.push([data[i][0] + 30000, open, high, low, close / 2, volume / 2]); // 30000 ms = 30s
             }
+            return thirtySecondCandles;
+        }
 
-            const avgGain = gains.slice(-period).reduce((a, b) => a + b, 0) / period || 0;
-            const avgLoss = losses.slice(-period).reduce((a, b) => a + b, 0) / period || 0;
-
-            const rs = avgGain / avgLoss;
+        function calculateRSI(prices) {
+            let gains = 0;
+            let losses = 0;
+            for (let i = 1; i < prices.length; i++) {
+                const change = prices[i] - prices[i - 1];
+                if (change > 0) gains += change;
+                else losses -= change;
+            }
+            const averageGain = gains / prices.length;
+            const averageLoss = losses / prices.length;
+            const rs = averageGain / averageLoss;
             return 100 - (100 / (1 + rs));
         }
 
         function analyzeVolume(data) {
             const volumes = data.map(candle => parseFloat(candle[5]));
-            return volumes.reduce((a, b) => a + b, 0) / volumes.length;
+            const avgVolume = volumes.reduce((a, b) => a + b, 0) / volumes.length;
+            return avgVolume;
         }
 
         function predictTrend(rsi, avgVolume, lastVolume) {
-            const bullishThreshold = 30;
-            const bearishThreshold = 70;
-
-            let trend = "";
-            let probability = 0;
-
-            if (rsi < bullishThreshold && lastVolume > avgVolume) {
-                trend = "Tăng";
-                probability = ((bullishThreshold - rsi) / bullishThreshold * 100).toFixed(2);
-            } else if (rsi > bearishThreshold && lastVolume > avgVolume) {
-                trend = "Giảm";
-                probability = ((rsi - bearishThreshold) / bearishThreshold * 100).toFixed(2);
+            if (rsi > 70 && lastVolume < avgVolume) {
+                return ["Giảm", 70];
+            } else if (rsi < 30 && lastVolume > avgVolume) {
+                return ["Tăng", 70];
+            } else if (rsi >= 30 && rsi <= 70 && lastVolume > avgVolume) {
+                return ["Tiếp tục xu hướng hiện tại", 60];
             } else {
-                trend = "Không xác định";
-                probability = 0;
+                return ["Không xác định", 50];
             }
-
-            return [trend, probability];
-        }
-
-        function renderChart(data) {
-            const prices = data.map(candle => ({
-                x: new Date(candle[0]),
-                o: parseFloat(candle[1]),
-                h: parseFloat(candle[3]),
-                l: parseFloat(candle[4]),
-                c: parseFloat(candle[4])
-            }));
-
-            if (candleChart) {
-                candleChart.destroy();
-            }
-
-            const ctx = document.getElementById('candleChart').getContext('2d');
-            candleChart = new Chart(ctx, {
-                type: 'candlestick',
-                data: {
-                    datasets: [{
-                        label: 'Candle',
-                        data: prices,
-                    }]
-                },
-                options: {
-                    responsive: true, // Biểu đồ sẽ phản hồi với kích thước màn hình
-                    plugins: {
-                        tooltip: {
-                            mode: 'index',
-                            intersect: false,
-                        },
-                        zoom: {
-                            pan: {
-                                enabled: true,
-                                mode: 'xy'
-                            },
-                            zoom: {
-                                enabled: true,
-                                mode: 'xy'
-                            }
-                        }
-                    },
-                    scales: {
-                        x: {
-                            type: 'time',
-                            time: {
-                                unit: 'minute'
-                            },
-                        },
-                        y: {
-                            title: {
-                                display: true,
-                                text: 'Giá'
-                            }
-                        }
-                    }
-                }
-            });
         }
 
         async function makePrediction(option) {
             console.log("Thực hiện dự đoán với tùy chọn:", option);
             const limit = parseInt(option);
             const interval = document.getElementById("chartInterval").value;
+            const provider = document.getElementById("provider").value;
 
             let data;
-            try {
+            if (interval === "30s" && provider === "binance") {
+                data = await fetchKlines("BTCUSDT", "1m", limit);
+                data = convertTo30sCandles(data);
+            } else {
                 data = await fetchKlines("BTCUSDT", interval, limit);
-                if (!data.length) throw new Error("Không có dữ liệu nến.");
-                renderChart(data); // Render biểu đồ sau khi lấy dữ liệu
-            } catch (error) {
-                console.error("Error fetching data:", error);
-                document.getElementById("result").innerText = "Có lỗi xảy ra khi lấy dữ liệu.";
-                return;
             }
 
             const prices = data.map(candle => parseFloat(candle[4]));
@@ -178,29 +143,19 @@
             const avgVolume = analyzeVolume(data);
             const lastVolume = parseFloat(data[data.length - 1][5]);
 
-            console.log(`RSI: ${rsi.toFixed(2)}, Avg Volume: ${avgVolume}, Last Volume: ${lastVolume}`);
-
             const [trend, probability] = predictTrend(rsi, avgVolume, lastVolume);
 
             // Kiểm tra dự đoán với giá thực tế
-            const previousClose = parseFloat(data[data.length - 2][4]); // Giá đóng của nến trước
-            const currentOpen = parseFloat(data[data.length - 1][1]);   // Giá mở của nến hiện tại
-            const actualDirection = (currentOpen > previousClose) ? "Tăng" : "Giảm"; // Xu hướng thực tế dựa trên mở và đóng
-
-            const isCorrect = (trend.includes(actualDirection)); // So sánh xu hướng dự đoán với xu hướng thực tế
+            const actualDirection = parseFloat(data[data.length - 1][4]) > parseFloat(data[data.length - 2][4]) ? "Tăng" : "Giảm";
+            const isCorrect = (trend === actualDirection);
 
             if (isCorrect) correctPredictions++;
             totalPredictions++;
 
-            // Hiển thị mũi tên
-            const arrow = (actualDirection === "Tăng") ? 
-                `<span class="arrow up-arrow">↑</span>` : 
-                `<span class="arrow down-arrow">↓</span>`;
-
             // Cập nhật hiển thị
             document.getElementById("result").innerHTML = `
                 <p>RSI: ${rsi.toFixed(2)}</p>
-                <p>Xu hướng dự đoán: ${trend} ${arrow}</p>
+                <p>Xu hướng dự đoán: ${trend}</p>
                 <p>Xác suất: ${probability}%</p>
                 <p>Xu hướng thực tế: ${actualDirection}</p>
                 <p>Kết quả dự đoán: ${isCorrect ? "Đúng" : "Sai"}</p>
@@ -210,41 +165,30 @@
                 <p>Số lần dự đoán đúng: ${correctPredictions}</p>
                 <p>Số lần dự đoán sai: ${totalPredictions - correctPredictions}</p>
                 <p>Độ chính xác: ${(correctPredictions / totalPredictions * 100).toFixed(2)}%</p>
+                <p>Tỷ lệ thua: ${((totalPredictions - correctPredictions) / totalPredictions * 100).toFixed(2)}%</p>
             `;
         }
 
         function startAutoPrediction() {
+            console.log("Bắt đầu dự đoán tự động");
             const option = document.getElementById("option").value;
-
             clearInterval(predictionInterval);
-            clearInterval(countdownInterval);
-
-            countdownTimer(0, (document.getElementById("chartInterval").value === "30s" ? 30 : 60));
 
             async function syncPrediction() {
-                const secondsToNextCandle = (document.getElementById("chartInterval").value === "30s" ? 30 : 60) - (new Date().getSeconds() % (document.getElementById("chartInterval").value === "30s" ? 30 : 60));
-                
-                console.log("Dự đoán trong giây:", secondsToNextCandle);
+                const currentTime = Date.now();
+                const secondsToNextCandle = (document.getElementById("chartInterval").value === "30s") ? 30 - ((currentTime / 1000) % 30) : 60 - ((currentTime / 1000) % 60);
 
-                if (secondsToNextCandle <= 5) {
+                // Đợi cho đến khi còn 7 giây để dự đoán
+                if (secondsToNextCandle > 7) {
                     await makePrediction(option);
+                    setTimeout(syncPrediction, (secondsToNextCandle - 5) * 1000); // 5 giây trước khi nến mới bắt đầu
+                } else {
+                    setTimeout(syncPrediction, secondsToNextCandle * 1000);
                 }
             }
 
-            predictionInterval = setInterval(syncPrediction, 1000);
-        }
-
-        function countdownTimer(initialTime, totalTime) {
-            let timeRemaining = totalTime;
-
-            countdownInterval = setInterval(() => {
-                if (timeRemaining <= 0) {
-                    clearInterval(countdownInterval);
-                    return;
-                }
-                document.getElementById("countdownTimer").innerText = `Thời gian đến dự đoán: ${timeRemaining}s`;
-                timeRemaining--;
-            }, 1000);
+            syncPrediction();
+            predictionInterval = setInterval(syncPrediction, (document.getElementById("chartInterval").value === "30s" ? 30000 : 60000));
         }
     </script>
 </body>
