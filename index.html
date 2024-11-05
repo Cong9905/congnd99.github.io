@@ -5,6 +5,22 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>BTC/USDT Chart with Auto Prediction</title>
     <script src="https://s3.tradingview.com/tv.js"></script>
+    <style>
+        .arrow {
+            font-size: 2em;
+            display: inline-block;
+        }
+        .up-arrow {
+            color: green;
+        }
+        .down-arrow {
+            color: red;
+        }
+        .timer {
+            font-size: 1.5em;
+            margin: 10px 0;
+        }
+    </style>
 </head>
 <body>
     <h1>BTC/USDT Chart</h1>
@@ -57,6 +73,7 @@
         <button id="predictButton" onclick="startAutoPrediction()">Bắt đầu dự đoán liên tục</button>
     </div>
 
+    <div class="timer" id="countdownTimer">Thời gian đến dự đoán: 0s</div>
     <div id="result"></div>
     <p id="accuracy"></p>
 
@@ -64,6 +81,7 @@
         let correctPredictions = 0;
         let totalPredictions = 0;
         let predictionInterval;
+        let countdownInterval;
         const predictionOffset = 5000; // Đưa ra dự đoán trước 5 giây
 
         async function fetchKlines(symbol, interval, limit) {
@@ -146,16 +164,24 @@
             const [trend, probability] = predictTrend(rsi, avgVolume, lastVolume);
 
             // Kiểm tra dự đoán với giá thực tế
-            const actualDirection = parseFloat(data[data.length - 1][4]) > parseFloat(data[data.length - 2][4]) ? "Tăng" : "Giảm";
-            const isCorrect = (trend === actualDirection);
+            const previousClose = parseFloat(data[data.length - 2][4]); // Giá đóng của nến trước
+            const currentOpen = parseFloat(data[data.length - 1][1]);   // Giá mở của nến hiện tại
+            const actualDirection = (currentOpen > previousClose) ? "Tăng" : "Giảm"; // Xu hướng thực tế dựa trên mở và đóng
+
+            const isCorrect = (trend.includes(actualDirection)); // So sánh xu hướng dự đoán với xu hướng thực tế
 
             if (isCorrect) correctPredictions++;
             totalPredictions++;
 
+            // Hiển thị mũi tên
+            const arrow = (actualDirection === "Tăng") ? 
+                `<span class="arrow up-arrow">↑</span>` : 
+                `<span class="arrow down-arrow">↓</span>`;
+
             // Cập nhật hiển thị
             document.getElementById("result").innerHTML = `
                 <p>RSI: ${rsi.toFixed(2)}</p>
-                <p>Xu hướng dự đoán: ${trend}</p>
+                <p>Xu hướng dự đoán: ${trend} ${arrow}</p>
                 <p>Xác suất: ${probability}%</p>
                 <p>Xu hướng thực tế: ${actualDirection}</p>
                 <p>Kết quả dự đoán: ${isCorrect ? "Đúng" : "Sai"}</p>
@@ -172,23 +198,36 @@
         function startAutoPrediction() {
             console.log("Bắt đầu dự đoán tự động");
             const option = document.getElementById("option").value;
+
             clearInterval(predictionInterval);
+            clearInterval(countdownInterval);
 
+            countdownTimer(0, (document.getElementById("chartInterval").value === "30s" ? 30 : 60));
+
+            // Tính toán tự động
             async function syncPrediction() {
-                const currentTime = Date.now();
-                const secondsToNextCandle = (document.getElementById("chartInterval").value === "30s") ? 30 - ((currentTime / 1000) % 30) : 60 - ((currentTime / 1000) % 60);
-
-                // Đợi cho đến khi còn 7 giây để dự đoán
-                if (secondsToNextCandle > 7) {
+                const secondsToNextCandle = (document.getElementById("chartInterval").value === "30s" ? 30 : 60) - (new Date().getSeconds() % (document.getElementById("chartInterval").value === "30s" ? 30 : 60));
+                
+                if (secondsToNextCandle <= 7 && secondsToNextCandle > 0) {
                     await makePrediction(option);
-                    setTimeout(syncPrediction, (secondsToNextCandle - 5) * 1000); // 5 giây trước khi nến mới bắt đầu
-                } else {
-                    setTimeout(syncPrediction, secondsToNextCandle * 1000);
                 }
             }
 
-            syncPrediction();
             predictionInterval = setInterval(syncPrediction, (document.getElementById("chartInterval").value === "30s" ? 30000 : 60000));
+        }
+
+        function countdownTimer(start, duration) {
+            let timeRemaining = duration;
+
+            // Cập nhật thời gian còn lại
+            countdownInterval = setInterval(() => {
+                if (timeRemaining <= 0) {
+                    clearInterval(countdownInterval);
+                    return;
+                }
+                document.getElementById("countdownTimer").innerText = `Thời gian đến dự đoán: ${timeRemaining}s`;
+                timeRemaining--;
+            }, 1000);
         }
     </script>
 </body>
