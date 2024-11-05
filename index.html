@@ -131,14 +131,20 @@
         }
 
         function predictTrend(rsi, avgVolume, lastVolume) {
-            if (rsi > 70 && lastVolume < avgVolume) {
+            if (rsi > 70) {
                 return ["Giảm", 70];
-            } else if (rsi < 30 && lastVolume > avgVolume) {
+            } else if (rsi < 30) {
                 return ["Tăng", 70];
-            } else if (rsi >= 30 && rsi <= 70 && lastVolume > avgVolume) {
-                return ["Tiếp tục xu hướng hiện tại", 60];
+            } else if (rsi >= 30 && rsi <= 70) {
+                if (lastVolume > avgVolume) {
+                    return ["Tăng", 60];
+                } else if (lastVolume < avgVolume) {
+                    return ["Giảm", 60];
+                } else {
+                    return ["Không xác định", 50]; // Trả về không xác định nếu khối lượng không khác biệt
+                }
             } else {
-                return ["Không xác định", 50];
+                return ["Không xác định", 50]; // Bảo đảm sẽ có giá trị trở về nếu không thỏa mãn điều kiện
             }
         }
 
@@ -160,6 +166,8 @@
             const rsi = calculateRSI(prices);
             const avgVolume = analyzeVolume(data);
             const lastVolume = parseFloat(data[data.length - 1][5]);
+
+            console.log(`RSI: ${rsi.toFixed(2)}, Avg Volume: ${avgVolume}, Last Volume: ${lastVolume}`);
 
             const [trend, probability] = predictTrend(rsi, avgVolume, lastVolume);
 
@@ -191,12 +199,10 @@
                 <p>Số lần dự đoán đúng: ${correctPredictions}</p>
                 <p>Số lần dự đoán sai: ${totalPredictions - correctPredictions}</p>
                 <p>Độ chính xác: ${(correctPredictions / totalPredictions * 100).toFixed(2)}%</p>
-                <p>Tỷ lệ thua: ${((totalPredictions - correctPredictions) / totalPredictions * 100).toFixed(2)}%</p>
             `;
         }
 
         function startAutoPrediction() {
-            console.log("Bắt đầu dự đoán tự động");
             const option = document.getElementById("option").value;
 
             clearInterval(predictionInterval);
@@ -204,7 +210,6 @@
 
             countdownTimer(0, (document.getElementById("chartInterval").value === "30s" ? 30 : 60));
 
-            // Tính toán tự động
             async function syncPrediction() {
                 const secondsToNextCandle = (document.getElementById("chartInterval").value === "30s" ? 30 : 60) - (new Date().getSeconds() % (document.getElementById("chartInterval").value === "30s" ? 30 : 60));
                 
@@ -219,7 +224,6 @@
         function countdownTimer(start, duration) {
             let timeRemaining = duration;
 
-            // Cập nhật thời gian còn lại
             countdownInterval = setInterval(() => {
                 if (timeRemaining <= 0) {
                     clearInterval(countdownInterval);
