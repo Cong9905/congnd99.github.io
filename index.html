@@ -211,8 +211,9 @@
             countdownTimer(0, (document.getElementById("chartInterval").value === "30s" ? 30 : 60));
 
             async function syncPrediction() {
-                const secondsToNextCandle = (document.getElementById("chartInterval").value === "30s" ? 30 : 60) - (new Date().getSeconds() % (document.getElementById("chartInterval").value === "30s" ? 30 : 60));
+                const secondsToNextCandle = (document.getElementById("chartInterval").value === "30s" ? 30 : 60) - ((new Date().getSeconds()) % (document.getElementById("chartInterval").value === "30s" ? 30 : 60));
                 
+                console.log(`Seconds to next candle: ${secondsToNextCandle}`); // Thêm log để theo dõi
                 if (secondsToNextCandle <= 7 && secondsToNextCandle > 0) {
                     await makePrediction(option);
                 }
