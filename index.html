@@ -25,7 +25,6 @@
 <body>
     <h1>BTC/USDT Chart</h1>
 
-    <!-- Biểu đồ TradingView -->
     <div class="tradingview-widget-container">
         <div id="tradingview_12345"></div>
         <script type="text/javascript">
@@ -51,7 +50,6 @@
         </script>
     </div>
 
-    <!-- Lựa chọn thời gian và tính toán -->
     <div>
         <label for="chartInterval">Chọn thời gian biểu đồ:</label>
         <select id="chartInterval">
@@ -71,6 +69,7 @@
             <option value="3">3 nến gần nhất</option>
         </select>
         <button id="predictButton" onclick="startAutoPrediction()">Bắt đầu dự đoán liên tục</button>
+        <button id="resetButton" onclick="resetPrediction()">Đặt lại</button>
     </div>
 
     <div class="timer" id="countdownTimer">Thời gian đến dự đoán: 0s</div>
@@ -83,6 +82,9 @@
         let predictionInterval;
         let countdownInterval;
         const predictionOffset = 5000; // Đưa ra dự đoán trước 5 giây
+        const resultsHistory = [];
+        const lossThreshold = 0.2; // Ngưỡng thua
+        let currentRsiThreshold = { upper: 70, lower: 30 }; // Ngưỡng RSI ban đầu
 
         async function fetchKlines(symbol, interval, limit) {
             const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
@@ -131,11 +133,11 @@
         }
 
         function predictTrend(rsi, avgVolume, lastVolume) {
-            if (rsi > 70) {
+            if (rsi > currentRsiThreshold.upper) {
                 return ["Giảm", 70];
-            } else if (rsi < 30) {
+            } else if (rsi < currentRsiThreshold.lower) {
                 return ["Tăng", 70];
-            } else if (rsi >= 30 && rsi <= 70) {
+            } else if (rsi >= currentRsiThreshold.lower && rsi <= currentRsiThreshold.upper) {
                 if (lastVolume > avgVolume) {
                     return ["Tăng", 60];
                 } else if (lastVolume < avgVolume) {
@@ -178,74 +180,61 @@
 
             const isCorrect = (trend.includes(actualDirection)); // So sánh xu hướng dự đoán với xu hướng thực tế
 
-            if (isCorrect) correctPredictions++;
+            if (isCorrect) {
+                correctPredictions++;
+                resultsHistory.push({ prediction: trend, actual: actualDirection, correct: true });
+            } else {
+                resultsHistory.push({ prediction: trend, actual: actualDirection, correct: false });
+            }
             totalPredictions++;
 
-            // Hiển thị mũi tên
-            const arrow = (trend === "Tăng") ? 
-                `<span class="arrow up-arrow">↑</span>` : 
-                (trend === "Giảm" ? `<span class="arrow down-arrow">↓</span>` : "");
-            
-            // Cập nhật hiển thị
-            document.getElementById("result").innerHTML = `
-                <p>RSI: ${rsi.toFixed(2)}</p>
-                <p>Xu hướng dự đoán: ${trend} ${arrow}</p>
-                <p>Xác suất: ${probability}%</p>
-                <p>Xu hướng thực tế: ${actualDirection}</p>
-                <p>Kết quả dự đoán: ${isCorrect ? "Đúng" : "Sai"}</p>
-            `;
-            document.getElementById("accuracy").innerHTML = `
-                <p>Tổng số dự đoán: ${totalPredictions}</p>
-                <p>Số lần dự đoán đúng: ${correctPredictions}</p>
-                <p>Số lần dự đoán sai: ${totalPredictions - correctPredictions}</p>
-                <p>Độ chính xác: ${(correctPredictions / totalPredictions * 100).toFixed(2)}%</p>
-            `;
-
-            // Kiểm tra tỉ lệ loss
-            if ((totalPredictions - correctPredictions) / totalPredictions > 0.2) {
-                alert("Tỉ lệ dự đoán sai > 20%. Cần cải thiện mô hình!");
-                // Có thể thêm logic để cải tiến mô hình ở đây
+            // Cập nhật ngưỡng nếu tỷ lệ thua lớn hơn 20%
+            if ((totalPredictions > 0) && (correctPredictions / totalPredictions < (1 - lossThreshold))) {
+                currentRsiThreshold.upper += 5; // Tăng ngưỡng trên
+                currentRsiThreshold.lower -= 5; // Giảm ngưỡng dưới
+                console.log(`Ngưỡng RSI đã được điều chỉnh: ${currentRsiThreshold.upper}, ${currentRsiThreshold.lower}`);
             }
-        }
 
-        function countdownTimer(start, duration) {
-            let timeRemaining = duration;
+            // Cập nhật kết quả và hiển thị mũi tên
+            document.getElementById("result").innerHTML = `Dự đoán: ${trend} (Xác suất: ${probability}%)<br>` +
+                `<span class="arrow ${trend === "Giảm" ? "down-arrow" : "up-arrow"}">${trend === "Giảm" ? "↓" : "↑"}</span>`;
 
-            clearInterval(countdownInterval); // Đảm bảo rằng không có interval nào đang chạy trước đó
-
-            countdownInterval = setInterval(() => {
-                if (timeRemaining <= 0) {
-                    clearInterval(countdownInterval);
-                    return;
-                }
-                document.getElementById("countdownTimer").innerText = `Thời gian đến dự đoán: ${timeRemaining}s`;
-                timeRemaining--;
-            }, 1000);
+            // Cập nhật tỷ lệ chính xác
+            const accuracyPercentage = ((correctPredictions / totalPredictions) * 100).toFixed(2);
+            document.getElementById("accuracy").innerText = `Tỷ lệ chính xác: ${accuracyPercentage}%`;
         }
 
         function startAutoPrediction() {
-            const option = document.getElementById("option").value;
+            const intervalTime = 30000; // Thời gian giữa các dự đoán
+            const countdownTime = 10; // Thời gian đếm ngược
 
+            predictionInterval = setInterval(() => {
+                const option = document.getElementById("option").value;
+                makePrediction(option);
+            }, intervalTime);
+
+            countdownInterval = setInterval(() => {
+                let countdown = countdownTime;
+                const timerElement = document.getElementById("countdownTimer");
+                const countdownLoop = setInterval(() => {
+                    timerElement.innerText = `Thời gian đến dự đoán: ${countdown}s`;
+                    if (countdown <= 0) {
+                        clearInterval(countdownLoop);
+                    }
+                    countdown--;
+                }, 1000);
+            }, intervalTime);
+        }
+
+        function resetPrediction() {
             clearInterval(predictionInterval);
             clearInterval(countdownInterval);
-
-            // Khởi động lại đếm ngược
-            const duration = (document.getElementById("chartInterval").value === "30s" ? 30 : 60);
-            countdownTimer(0, duration);
-
-            async function syncPrediction() {
-                const secondsToNextCandle = (document.getElementById("chartInterval").value === "30s" ? 30 : 60) - (new Date().getSeconds() % (document.getElementById("chartInterval").value === "30s" ? 30 : 60));
-
-                if (secondsToNextCandle <= 7 && secondsToNextCandle > 0) {
-                    await makePrediction(option);
-                }
-
-                // Gọi lại hàm này mỗi giây để đảm bảo rằng nó kiểm tra liên tục
-                countdownTimer(secondsToNextCandle, (document.getElementById("chartInterval").value === "30s" ? 30 : 60));
-            }
-
-            // Bắt đầu vòng lặp tự động
-            predictionInterval = setInterval(syncPrediction, 1000); // Cứ mỗi giây một lần để kiểm tra
+            correctPredictions = 0;
+            totalPredictions = 0;
+            resultsHistory.length = 0;
+            document.getElementById("result").innerHTML = '';
+            document.getElementById("accuracy").innerText = '';
+            document.getElementById("countdownTimer").innerText = 'Thời gian đến dự đoán: 0s';
         }
     </script>
 </body>
