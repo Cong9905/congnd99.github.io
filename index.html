@@ -75,6 +75,7 @@
     <div id="result"></div>
     <p id="accuracy"></p>
     <p id="learningMessage"></p> <!-- Thông báo học hỏi ở cuối dòng -->
+    <div id="indicators"></div> <!-- Khu vực hiển thị chỉ số RSI và Volume -->
 
     <script>
         let correctPredictions = 0;
@@ -132,6 +133,13 @@
             return avgVolume;
         }
 
+        function getOverallTrend(data) {
+            const closes = data.map(candle => parseFloat(candle[4]));
+            const latestClose = closes[closes.length - 1];
+            const previousClose = closes[closes.length - 2];
+            return latestClose > previousClose ? "Tăng" : "Giảm"; // Dựa vào giá đóng gần nhất
+        }
+
         function predictTrend(rsi, avgVolume, lastVolume) {
             if (rsi > currentRsiThreshold.upper) {
                 return ["Giảm", 70];
@@ -168,8 +176,9 @@
             const rsi = calculateRSI(prices);
             const avgVolume = analyzeVolume(data);
             const lastVolume = parseFloat(data[data.length - 1][5]);
+            const overallTrend = getOverallTrend(data);
 
-            console.log(`RSI: ${rsi.toFixed(2)}, Avg Volume: ${avgVolume}, Last Volume: ${lastVolume}`);
+            console.log(`RSI: ${rsi.toFixed(2)}, Avg Volume: ${avgVolume}, Last Volume: ${lastVolume}, Xu hướng: ${overallTrend}`);
 
             const [trend, probability] = predictTrend(rsi, avgVolume, lastVolume);
 
@@ -188,15 +197,11 @@
             }
             totalPredictions++;
 
-            // Cập nhật ngưỡng nếu tỷ lệ thua lớn hơn 20%
-            if ((totalPredictions > 0) && (correctPredictions / totalPredictions < (1 - lossThreshold))) {
-                currentRsiThreshold.upper += 5; // Tăng ngưỡng trên
-                currentRsiThreshold.lower -= 5; // Giảm ngưỡng dưới
-                console.log(`Ngưỡng RSI đã được điều chỉnh: ${currentRsiThreshold.upper}, ${currentRsiThreshold.lower}`);
-            }
-
-            // Cập nhật kết quả và hiển thị mũi tên
-            document.getElementById("result").innerHTML = `Dự đoán: ${trend} (${probability}%)<br>`;
+            // Cập nhật ngữ cảnh dự đoán
+            document.getElementById("indicators").innerHTML = `
+                <strong>Chỉ số:</strong> RSI: ${rsi.toFixed(2)}, Volume: ${lastVolume}, Xu hướng: ${overallTrend}<br>
+                Dự đoán: ${trend} (${probability}%)<br>
+            `;
             if (trend.includes("Tăng")) {
                 document.getElementById("result").innerHTML += `<span class="arrow up-arrow">↑</span>`;
             } else if (trend.includes("Giảm")) {
@@ -257,6 +262,7 @@
             document.getElementById("accuracy").innerText = "";
             document.getElementById("learningMessage").innerText = ""; // Xóa thông điệp học hỏi
             document.getElementById("countdownTimer").innerText = "Thời gian đến dự đoán: 0s";
+            document.getElementById("indicators").innerHTML = ""; // Xóa thông tin chỉ số
         }
     </script>
 </body>
