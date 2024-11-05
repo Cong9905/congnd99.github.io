@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="vi">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BTC/USDT Chart with Auto Prediction</title>
+    <title>Biểu đồ BTC/USDT với Dự đoán Tự động</title>
     <script src="https://s3.tradingview.com/tv.js"></script>
     <style>
         body {
@@ -51,7 +51,7 @@
     </style>
 </head>
 <body>
-    <h1>BTC/USDT Chart</h1>
+    <h1>Biểu đồ BTC/USDT</h1>
 
     <div class="tradingview-widget-container">
         <div id="tradingview_12345"></div>
@@ -63,7 +63,7 @@
                 "timezone": "Etc/UTC",
                 "theme": "light",
                 "style": "1",
-                "locale": "en",
+                "locale": "vi",
                 "toolbar_bg": "#f1f3f6",
                 "enable_publishing": false,
                 "withdateranges": true,
@@ -111,8 +111,9 @@
         let totalPredictions = 0;
         let predictionInterval;
         let countdownInterval;
-        let timeLeft = 30; // Thời gian đếm ngược
+        let timeLeft;
         const predictionOffset = 5000; // Đưa ra dự đoán trước 5 giây
+        let predictionFrequency = 30; // Thời gian giữa các dự đoán
         const resultsHistory = [];
         const lossThreshold = 0.2; // Ngưỡng thua
         let currentRsiThreshold = { upper: 70, lower: 30 }; // Ngưỡng RSI ban đầu
@@ -121,7 +122,7 @@
             const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
             const response = await fetch(url);
             if (!response.ok) {
-                throw new Error(`Error fetching data: ${response.statusText}`);
+                throw new Error(`Lỗi khi lấy dữ liệu: ${response.statusText}`);
             }
             const data = await response.json();
             return data;
@@ -213,69 +214,71 @@
 
             if (isCorrect) {
                 correctPredictions++;
-                resultsHistory.push({ prediction: trend, actual: actualDirection, correct: true });
             } else {
                 incorrectPredictions++;
-                resultsHistory.push({ prediction: trend, actual: actualDirection, correct: false });
             }
 
             totalPredictions++;
 
-            // Hiển thị kết quả
-            document.getElementById("result").innerHTML = `Dự đoán: ${trend}, Thực tế: ${actualDirection} (${probability}%)`;
-            const arrow = trend === "Tăng" ? `<span class="arrow up-arrow">↑</span>` : `<span class="arrow down-arrow">↓</span>`;
-            document.getElementById("result").innerHTML += arrow;
+            updateAccuracyDisplay();
+            displayResult(trend, probability, isCorrect);
+        }
 
-            // Cập nhật tỷ lệ chính xác
-            const accuracyPercentage = ((correctPredictions / totalPredictions) * 100).toFixed(2);
-            const incorrectPercentage = ((incorrectPredictions / totalPredictions) * 100).toFixed(2);
-            document.getElementById("accuracy").innerHTML = `Tổng số lượt dự đoán: ${totalPredictions}, Đúng: ${correctPredictions} (${accuracyPercentage}%), Sai: ${incorrectPredictions} (${incorrectPercentage}%) (Học hỏi từ các phương pháp để tăng tỷ lệ win)`;
+        function updateAccuracyDisplay() {
+            const accuracy = ((correctPredictions / totalPredictions) * 100).toFixed(2);
+            document.getElementById("accuracy").innerText = `Tổng dự đoán: ${totalPredictions}, Đúng: ${correctPredictions}, Sai: ${incorrectPredictions}, Tỉ lệ đúng: ${accuracy}%`;
+        }
 
-            // Cảnh báo nếu thị trường biến động mạnh
-            if (Math.abs(lastVolume - avgVolume) > avgVolume * lossThreshold) {
-                document.getElementById("warning").innerHTML = "⚠️ Cảnh báo: Thị trường biến động mạnh! Không nên giao dịch!";
-            } else {
-                document.getElementById("warning").innerHTML = "";
+        function displayResult(trend, probability, isCorrect) {
+            const resultElement = document.getElementById("result");
+            const arrowElement = document.createElement("span");
+            arrowElement.className = trend === "Tăng" ? "up-arrow arrow" : "down-arrow arrow";
+            arrowElement.innerHTML = trend === "Tăng" ? "↑" : "↓"; // Hiển thị mũi tên cho dự đoán
+
+            resultElement.innerHTML = `Dự đoán: ${trend} với xác suất ${probability}% `;
+            resultElement.appendChild(arrowElement);
+        }
+
+        function updateCountdown() {
+            const timerElement = document.getElementById("countdownTimer");
+            timeLeft--;
+
+            if (timeLeft <= 0) {
+                timeLeft = predictionFrequency; // Đặt lại thời gian đếm ngược
             }
 
-            // Reset countdown and timeLeft for next prediction
-            timeLeft = 30;
+            if (timeLeft <= 7) {
+                // Đưa ra dự đoán trong khoảng từ 7 đến 5 giây
+                if (timeLeft === 5) {
+                    const option = document.getElementById("option").value;
+                    makePrediction(option);
+                }
+            }
+
+            timerElement.innerText = `Thời gian đến dự đoán: ${timeLeft}s`;
         }
 
         function startAutoPrediction() {
-            resetCountdown();
-            const option = document.getElementById("option").value;
-
-            predictionInterval = setInterval(async () => {
-                await makePrediction(option);
-            }, 30000); // Dự đoán mỗi 30 giây
-
-            countdownInterval = setInterval(() => {
-                if (timeLeft > 0) {
-                    document.getElementById("countdownTimer").innerText = `Thời gian đến dự đoán: ${timeLeft}s`;
-                    timeLeft--;
-                } else {
-                    timeLeft = 30; // Reset lại thời gian đếm ngược về 30 giây
-                }
-            }, 1000); // Cập nhật đếm ngược mỗi giây
-        }
-
-        function resetCountdown() {
+            clearInterval(predictionInterval);
             clearInterval(countdownInterval);
-            timeLeft = 30;
-            document.getElementById("countdownTimer").innerText = `Thời gian đến dự đoán: ${timeLeft}s`;
+            timeLeft = (document.getElementById("chartInterval").value === "30s") ? 30 : 60; // Thiết lập thời gian dự đoán
+            predictionFrequency = (document.getElementById("chartInterval").value === "30s") ? 30 : 60; // Thời gian giữa các dự đoán
+            countdownInterval = setInterval(updateCountdown, 1000);
+            predictionInterval = setInterval(() => {
+                const option = document.getElementById("option").value;
+                makePrediction(option);
+            }, predictionFrequency * 1000); // Thiết lập khoảng thời gian giữa các dự đoán
         }
 
         function resetPrediction() {
             clearInterval(predictionInterval);
-            resetCountdown();
+            clearInterval(countdownInterval);
             correctPredictions = 0;
             incorrectPredictions = 0;
             totalPredictions = 0;
-            document.getElementById("result").innerHTML = "";
-            document.getElementById("accuracy").innerHTML = "";
-            document.getElementById("warning").innerHTML = "";
-            currentRsiThreshold = { upper: 70, lower: 30 }; // Đặt lại ngưỡng RSI
+            document.getElementById("result").innerText = "";
+            document.getElementById("accuracy").innerText = "";
+            document.getElementById("countdownTimer").innerText = "Thời gian đến dự đoán: 30s";
         }
     </script>
 </body>
