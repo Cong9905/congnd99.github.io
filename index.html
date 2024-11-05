@@ -188,16 +188,13 @@
             const actualDirection = (currentOpen > previousClose) ? "Tăng" : "Giảm"; // Xu hướng thực tế dựa trên mở và đóng
 
             const isCorrect = (trend.includes(actualDirection)); // So sánh xu hướng dự đoán với xu hướng thực tế
-
             if (isCorrect) {
                 correctPredictions++;
-                resultsHistory.push({ prediction: trend, actual: actualDirection, correct: true });
-            } else {
-                resultsHistory.push({ prediction: trend, actual: actualDirection, correct: false });
             }
+
             totalPredictions++;
 
-            // Cập nhật ngữ cảnh dự đoán
+            // Hiển thị kết quả dự đoán và chỉ số
             document.getElementById("indicators").innerHTML = `
                 <strong>Chỉ số:</strong> RSI: ${rsi.toFixed(2)}, Volume: ${lastVolume}, Xu hướng: ${overallTrend}<br>
                 Dự đoán: ${trend} (${probability}%)<br>
@@ -228,9 +225,11 @@
             // Kiểm tra thời gian đóng nến
             const countdownDuration = isThirtySeconds ? 30 : 60;
 
-            countdownTimer(countdownDuration);
+            // Đặt lại thời gian để chuẩn bị cho vòng đếm tiếp theo
+            countdownTimer(countdownDuration - 7); // Bắt đầu đếm ngược trước 7 giây
             predictionInterval = setInterval(() => {
                 makePrediction(5);
+                countdownTimer(countdownDuration);
             }, countdownDuration * 1000); // Tự động dự đoán sau mỗi 30 giây hoặc 1 phút
         }
 
