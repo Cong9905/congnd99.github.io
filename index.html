@@ -16,13 +16,11 @@
             color: red;
         }
         canvas {
-            max-width: 100%; /* Cho phép canvas co dãn theo chiều rộng của màn hình */
-            height: auto;    /* Chiều cao tự động */
+            max-width: 600px;
+            max-height: 400px;
         }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom"></script>
 </head>
 <body>
     <h1>Dự Đoán Xu Hướng BTC/USDT</h1>
@@ -119,41 +117,15 @@
                     datasets: [{
                         label: 'Candle',
                         data: prices,
-                        borderColor: 'rgba(0, 0, 0, 1)',
-                        backgroundColor: (context) => {
-                            const { dataset, dataIndex } = context;
-                            return dataset.data[dataIndex].o < dataset.data[dataIndex].c ? 'rgba(0, 255, 0, 0.5)' : 'rgba(255, 0, 0, 0.5)';
-                        },
                     }]
                 },
                 options: {
-                    responsive: true, // Biểu đồ sẽ phản hồi với kích thước màn hình
-                    plugins: {
-                        tooltip: {
-                            mode: 'index',
-                            intersect: false,
-                        },
-                        zoom: {
-                            pan: {
-                                enabled: true,
-                                mode: 'xy'
-                            },
-                            zoom: {
-                                enabled: true,
-                                mode: 'xy'
-                            }
-                        }
-                    },
                     scales: {
                         x: {
                             type: 'time',
                             time: {
                                 unit: 'minute'
                             },
-                            title: {
-                                display: true,
-                                text: 'Thời gian'
-                            }
                         },
                         y: {
                             title: {
@@ -208,23 +180,44 @@
 
             // Cập nhật hiển thị
             document.getElementById("result").innerHTML = `
-                <p>RSI: ${rsi.toFixed(2)}, Dự đoán: ${trend} (${probability}%), Kết quả thực tế: ${actualDirection} ${arrow}</p>
+                <p>RSI: ${rsi.toFixed(2)}</p>
+                <p>Xu hướng dự đoán: ${trend} ${arrow}</p>
+                <p>Xác suất: ${probability}%</p>
+                <p>Xu hướng thực tế: ${actualDirection}</p>
+                <p>Kết quả dự đoán: ${isCorrect ? "Đúng" : "Sai"}</p>
             `;
-            document.getElementById("accuracy").innerText = `Tỉ lệ thắng: ${(correctPredictions / totalPredictions * 100).toFixed(2)}%`;
+            document.getElementById("accuracy").innerHTML = `
+                <p>Tổng số dự đoán: ${totalPredictions}</p>
+                <p>Số lần dự đoán đúng: ${correctPredictions}</p>
+                <p>Số lần dự đoán sai: ${totalPredictions - correctPredictions}</p>
+                <p>Độ chính xác: ${(correctPredictions / totalPredictions * 100).toFixed(2)}%</p>
+            `;
         }
 
-        async function syncPrediction() {
+        function startAutoPrediction() {
             const option = document.getElementById("option").value;
-            const secondsToNextCandle = 7; // Thời gian còn lại đến nến tiếp theo
 
-            // Chỉ thực hiện dự đoán nếu thời gian còn lại <= 5 giây
-            if (secondsToNextCandle <= 5) {
-                await makePrediction(option);
+            clearInterval(predictionInterval);
+            clearInterval(countdownInterval);
+
+            countdownTimer(0, (document.getElementById("chartInterval").value === "30s" ? 30 : 60));
+
+            async function syncPrediction() {
+                const secondsToNextCandle = (document.getElementById("chartInterval").value === "30s" ? 30 : 60) - (new Date().getSeconds() % (document.getElementById("chartInterval").value === "30s" ? 30 : 60));
+                
+                console.log("Seconds to next candle:", secondsToNextCandle); // Thêm log để kiểm tra thời gian còn lại
+
+                if (secondsToNextCandle <= 7 && secondsToNextCandle > 0) {
+                    console.log("Calling makePrediction..."); // Log khi gọi hàm dự đoán
+                    await makePrediction(option);
+                }
             }
+
+            predictionInterval = setInterval(syncPrediction, (document.getElementById("chartInterval").value === "30s" ? 30000 : 60000));
         }
 
-        function countdownTimer(initialTime, totalTime) {
-            let timeRemaining = totalTime;
+        function countdownTimer(start, duration) {
+            let timeRemaining = duration;
 
             countdownInterval = setInterval(() => {
                 if (timeRemaining <= 0) {
@@ -234,14 +227,6 @@
                 document.getElementById("countdownTimer").innerText = `Thời gian đến dự đoán: ${timeRemaining}s`;
                 timeRemaining--;
             }, 1000);
-        }
-
-        function startAutoPrediction() {
-            const interval = document.getElementById("chartInterval").value;
-            const totalTime = (interval === "30s") ? 30 : 60; // 30 giây hoặc 1 phút
-            countdownTimer(totalTime, totalTime);
-
-            predictionInterval = setInterval(syncPrediction, 1000);
         }
     </script>
 </body>
