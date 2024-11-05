@@ -6,6 +6,30 @@
     <title>BTC/USDT Chart with Auto Prediction</title>
     <script src="https://s3.tradingview.com/tv.js"></script>
     <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f9f9f9;
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+        }
+        .tradingview-widget-container {
+            margin: 20px 0;
+        }
+        label {
+            margin-right: 10px;
+        }
+        select, button {
+            margin-right: 20px;
+            padding: 5px 10px;
+        }
+        .timer {
+            font-size: 1.5em;
+            margin: 10px 0;
+            color: #555;
+        }
         .arrow {
             font-size: 2em;
             display: inline-block;
@@ -16,8 +40,12 @@
         .down-arrow {
             color: red;
         }
-        .timer {
-            font-size: 1.5em;
+        #result, #warning {
+            font-size: 1.2em;
+            margin: 10px 0;
+        }
+        #accuracy {
+            font-size: 1em;
             margin: 10px 0;
         }
     </style>
@@ -72,15 +100,18 @@
         <button id="resetButton" onclick="resetPrediction()">Đặt lại</button>
     </div>
 
-    <div class="timer" id="countdownTimer">Thời gian đến dự đoán: 0s</div>
+    <div class="timer" id="countdownTimer">Thời gian đến dự đoán: 30s</div>
     <div id="result"></div>
+    <div id="warning"></div>
     <p id="accuracy"></p>
 
     <script>
         let correctPredictions = 0;
+        let incorrectPredictions = 0;
         let totalPredictions = 0;
         let predictionInterval;
         let countdownInterval;
+        let timeLeft = 30; // Thời gian đếm ngược
         const predictionOffset = 5000; // Đưa ra dự đoán trước 5 giây
         const resultsHistory = [];
         const lossThreshold = 0.2; // Ngưỡng thua
@@ -184,25 +215,31 @@
                 correctPredictions++;
                 resultsHistory.push({ prediction: trend, actual: actualDirection, correct: true });
             } else {
+                incorrectPredictions++;
                 resultsHistory.push({ prediction: trend, actual: actualDirection, correct: false });
             }
+
             totalPredictions++;
 
-            // Cập nhật ngưỡng nếu tỷ lệ thua lớn hơn 20%
-            if ((totalPredictions > 0) && (correctPredictions / totalPredictions < (1 - lossThreshold))) {
-                currentRsiThreshold.upper += 5; // Tăng ngưỡng trên
-                currentRsiThreshold.lower -= 5; // Giảm ngưỡng dưới
-                console.log(`Ngưỡng RSI đã được điều chỉnh: ${currentRsiThreshold.upper}, ${currentRsiThreshold.lower}`);
-            }
-
-            // Cập nhật kết quả và hiển thị mũi tên
-            document.getElementById("result").innerHTML = `Dự đoán: ${trend} (Xác suất: ${probability}%)`;
+            // Hiển thị kết quả
+            document.getElementById("result").innerHTML = `Dự đoán: ${trend}, Thực tế: ${actualDirection} (${probability}%)`;
             const arrow = trend === "Tăng" ? `<span class="arrow up-arrow">↑</span>` : `<span class="arrow down-arrow">↓</span>`;
             document.getElementById("result").innerHTML += arrow;
 
             // Cập nhật tỷ lệ chính xác
             const accuracyPercentage = ((correctPredictions / totalPredictions) * 100).toFixed(2);
-            document.getElementById("accuracy").innerHTML = `Tổng số lượt dự đoán: ${totalPredictions}, Tỷ lệ chính xác: ${accuracyPercentage}% (Học hỏi từ các phương pháp để tăng tỷ lệ win)`;
+            const incorrectPercentage = ((incorrectPredictions / totalPredictions) * 100).toFixed(2);
+            document.getElementById("accuracy").innerHTML = `Tổng số lượt dự đoán: ${totalPredictions}, Đúng: ${correctPredictions} (${accuracyPercentage}%), Sai: ${incorrectPredictions} (${incorrectPercentage}%) (Học hỏi từ các phương pháp để tăng tỷ lệ win)`;
+
+            // Cảnh báo nếu thị trường biến động mạnh
+            if (Math.abs(lastVolume - avgVolume) > avgVolume * lossThreshold) {
+                document.getElementById("warning").innerHTML = "⚠️ Cảnh báo: Thị trường biến động mạnh! Không nên giao dịch!";
+            } else {
+                document.getElementById("warning").innerHTML = "";
+            }
+
+            // Reset countdown and timeLeft for next prediction
+            timeLeft = 30;
         }
 
         function startAutoPrediction() {
@@ -214,29 +251,30 @@
             }, 30000); // Dự đoán mỗi 30 giây
 
             countdownInterval = setInterval(() => {
-                let timeLeft = 30; // Tổng thời gian là 30 giây
-                const timer = setInterval(() => {
-                    timeLeft--;
+                if (timeLeft > 0) {
                     document.getElementById("countdownTimer").innerText = `Thời gian đến dự đoán: ${timeLeft}s`;
-                    if (timeLeft <= 0) {
-                        clearInterval(timer);
-                    }
-                }, 1000);
-            }, 30000); // Cập nhật đếm ngược mỗi 30 giây
+                    timeLeft--;
+                } else {
+                    timeLeft = 30; // Reset lại thời gian đếm ngược về 30 giây
+                }
+            }, 1000); // Cập nhật đếm ngược mỗi giây
         }
 
         function resetCountdown() {
             clearInterval(countdownInterval);
-            document.getElementById("countdownTimer").innerText = `Thời gian đến dự đoán: 30s`;
+            timeLeft = 30;
+            document.getElementById("countdownTimer").innerText = `Thời gian đến dự đoán: ${timeLeft}s`;
         }
 
         function resetPrediction() {
             clearInterval(predictionInterval);
             resetCountdown();
             correctPredictions = 0;
+            incorrectPredictions = 0;
             totalPredictions = 0;
             document.getElementById("result").innerHTML = "";
             document.getElementById("accuracy").innerHTML = "";
+            document.getElementById("warning").innerHTML = "";
             currentRsiThreshold = { upper: 70, lower: 30 }; // Đặt lại ngưỡng RSI
         }
     </script>
