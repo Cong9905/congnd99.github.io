@@ -25,7 +25,6 @@
 <body>
     <h1>BTC/USDT Chart</h1>
 
-    <!-- Biểu đồ TradingView -->
     <div class="tradingview-widget-container">
         <div id="tradingview_12345"></div>
         <script type="text/javascript">
@@ -51,7 +50,6 @@
         </script>
     </div>
 
-    <!-- Lựa chọn thời gian và tính toán -->
     <div>
         <label for="chartInterval">Chọn thời gian biểu đồ:</label>
         <select id="chartInterval">
@@ -71,6 +69,7 @@
             <option value="3">3 nến gần nhất</option>
         </select>
         <button id="predictButton" onclick="startAutoPrediction()">Bắt đầu dự đoán liên tục</button>
+        <button id="resetButton" onclick="resetPrediction()">Reset</button>
     </div>
 
     <div class="timer" id="countdownTimer">Thời gian đến dự đoán: 0s</div>
@@ -80,10 +79,13 @@
     <script>
         let correctPredictions = 0;
         let totalPredictions = 0;
-        let predictionHistory = []; // Lưu trữ lịch sử dự đoán
         let predictionInterval;
         let countdownInterval;
         const predictionOffset = 5000; // Đưa ra dự đoán trước 5 giây
+        const lossThreshold = 0.2; // Ngưỡng loss tối đa
+        const modelImprovementThreshold = 10; // Số lần sai để cải thiện mô hình
+        const newsAPIKey = 'YOUR_NEWS_API_KEY'; // Thay thế bằng khóa API của bạn
+        let newsImpact = ''; // Tin tức ảnh hưởng
 
         async function fetchKlines(symbol, interval, limit) {
             const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
@@ -95,20 +97,14 @@
             return data;
         }
 
-        function convertTo30sCandles(data) {
-            const thirtySecondCandles = [];
-            for (let i = 0; i < data.length; i++) {
-                const open = parseFloat(data[i][1]);
-                const close = parseFloat(data[i][4]);
-                const high = Math.max(open, close, parseFloat(data[i][2]), parseFloat(data[i][3]));
-                const low = Math.min(open, close, parseFloat(data[i][2]), parseFloat(data[i][3]));
-                const volume = parseFloat(data[i][5]);
-
-                // Thêm 2 nến 30 giây cho mỗi nến 1 phút
-                thirtySecondCandles.push([data[i][0], open, high, low, close / 2, volume / 2]);
-                thirtySecondCandles.push([data[i][0] + 30000, open, high, low, close / 2, volume / 2]); // 30000 ms = 30s
+        async function fetchNews() {
+            const url = `https://newsapi.org/v2/everything?q=bitcoin&apiKey=${newsAPIKey}`;
+            const response = await fetch(url);
+            if (!response.ok) {
+                throw new Error(`Error fetching news: ${response.statusText}`);
             }
-            return thirtySecondCandles;
+            const newsData = await response.json();
+            return newsData.articles;
         }
 
         function calculateRSI(prices) {
@@ -136,16 +132,12 @@
                 return ["Giảm", 70];
             } else if (rsi < 30) {
                 return ["Tăng", 70];
-            } else if (rsi >= 30 && rsi <= 70) {
-                if (lastVolume > avgVolume) {
-                    return ["Tăng", 60];
-                } else if (lastVolume < avgVolume) {
-                    return ["Giảm", 60];
-                } else {
-                    return ["Không xác định", 50]; // Trả về không xác định nếu khối lượng không khác biệt
-                }
+            } else if (lastVolume > avgVolume) {
+                return ["Tăng", 60];
+            } else if (lastVolume < avgVolume) {
+                return ["Giảm", 60];
             } else {
-                return ["Không xác định", 50]; // Bảo đảm sẽ có giá trị trở về nếu không thỏa mãn điều kiện
+                return ["Không xác định", 50];
             }
         }
 
@@ -173,16 +165,22 @@
             const [trend, probability] = predictTrend(rsi, avgVolume, lastVolume);
 
             // Kiểm tra dự đoán với giá thực tế
-            const previousClose = parseFloat(data[data.length - 2][4]); // Giá đóng của nến trước
-            const currentOpen = parseFloat(data[data.length - 1][1]);   // Giá mở của nến hiện tại
-            const actualDirection = (currentOpen > previousClose) ? "Tăng" : "Giảm"; // Xu hướng thực tế dựa trên mở và đóng
+            const previousClose = parseFloat(data[data.length - 2][4]);
+            const currentOpen = parseFloat(data[data.length - 1][1]);
+            const actualDirection = (currentOpen > previousClose) ? "Tăng" : "Giảm";
 
-            const isCorrect = (trend.includes(actualDirection)); // So sánh xu hướng dự đoán với xu hướng thực tế
+            const isCorrect = (trend.includes(actualDirection));
 
-            // Lưu kết quả dự đoán
-            logPrediction(rsi, trend, actualDirection, isCorrect);
+            if (isCorrect) {
+                correctPredictions++;
+            } else {
+                totalPredictions++;
+                // Kiểm tra tỷ lệ loss
+                if ((totalPredictions > 0) && ((totalPredictions - correctPredictions) / totalPredictions > lossThreshold)) {
+                    alert("Tỷ lệ loss > 20%. Cần cải tiến mô hình!");
+                }
+            }
 
-            if (isCorrect) correctPredictions++;
             totalPredictions++;
 
             // Hiển thị mũi tên
@@ -201,46 +199,78 @@
             document.getElementById("accuracy").innerHTML = `
                 <p>Tổng số dự đoán: ${totalPredictions}</p>
                 <p>Số lần dự đoán đúng: ${correctPredictions}</p>
-                <p>Tỷ lệ chính xác: ${(correctPredictions / totalPredictions * 100).toFixed(2)}%</p>
+                <p>Số lần dự đoán sai: ${totalPredictions - correctPredictions}</p>
+                <p>Độ chính xác: ${(correctPredictions / totalPredictions * 100).toFixed(2)}%</p>
             `;
         }
 
-        function logPrediction(rsi, trend, actualDirection, isCorrect) {
-            predictionHistory.push({ rsi, trend, actualDirection, isCorrect });
-            console.log("Lịch sử dự đoán:", predictionHistory);
+        async function startAutoPrediction() {
+            const option = document.getElementById("option").value;
+
+            clearInterval(predictionInterval);
+            clearInterval(countdownInterval);
+
+            countdownTimer(0, (document.getElementById("chartInterval").value === "30s" ? 30 : 60));
+
+            async function syncPrediction() {
+                const secondsToNextCandle = (document.getElementById("chartInterval").value === "30s" ? 30 : 60) - (new Date().getSeconds() % (document.getElementById("chartInterval").value === "30s" ? 30 : 60));
+                
+                if (secondsToNextCandle <= 7 && secondsToNextCandle > 0) {
+                    await makePrediction(option);
+                    await fetchAndAnalyzeNews(); // Cập nhật tin tức trước khi dự đoán tiếp theo
+                }
+            }
+
+            predictionInterval = setInterval(syncPrediction, 1000);
         }
 
-        function retrainModel() {
-            // Xử lý dữ liệu từ predictionHistory để huấn luyện lại mô hình
-            // Có thể sử dụng TensorFlow.js hoặc các thư viện khác để huấn luyện lại mô hình
-            console.log("Huấn luyện lại mô hình với dữ liệu:", predictionHistory);
+        async function fetchAndAnalyzeNews() {
+            try {
+                const newsArticles = await fetchNews();
+                newsImpact = analyzeNews(newsArticles);
+                console.log("Tin tức ảnh hưởng:", newsImpact);
+            } catch (error) {
+                console.error("Lỗi khi lấy tin tức:", error);
+            }
         }
 
-        function startAutoPrediction() {
-            if (predictionInterval) clearInterval(predictionInterval);
-            if (countdownInterval) clearInterval(countdownInterval);
+        function analyzeNews(articles) {
+            // Phân tích tin tức để xác định ảnh hưởng tiêu cực hoặc tích cực
+            let negativeCount = 0;
+            let positiveCount = 0;
+            articles.forEach(article => {
+                const title = article.title.toLowerCase();
+                if (title.includes("giảm") || title.includes("suy giảm") || title.includes("xấu")) {
+                    negativeCount++;
+                } else if (title.includes("tăng") || title.includes("tích cực")) {
+                    positiveCount++;
+                }
+            });
+            return (negativeCount > positiveCount) ? "Tiêu cực" : "Tích cực";
+        }
 
-            let countdown = 7; // 7 giây cho đếm ngược
+        function countdownTimer(startTime, totalTime) {
+            let timeLeft = totalTime - startTime;
+            document.getElementById("countdownTimer").innerText = `Thời gian đến dự đoán: ${timeLeft}s`;
+
             countdownInterval = setInterval(() => {
-                if (countdown > 0) {
-                    document.getElementById("countdownTimer").innerText = `Thời gian đến dự đoán: ${countdown}s`;
-                    countdown--;
-                } else {
+                timeLeft--;
+                document.getElementById("countdownTimer").innerText = `Thời gian đến dự đoán: ${timeLeft}s`;
+                if (timeLeft <= 0) {
                     clearInterval(countdownInterval);
-                    document.getElementById("countdownTimer").innerText = `Thời gian đến dự đoán: 0s`;
-                    const option = document.getElementById("option").value;
-                    makePrediction(option); // Gọi hàm dự đoán
-
-                    // Huấn luyện lại mô hình định kỳ
-                    retrainModel(); // Huấn luyện lại mô hình với dữ liệu lịch sử
-                    countdown = 7; // Reset lại đếm ngược
                 }
             }, 1000);
+        }
 
-            predictionInterval = setInterval(() => {
-                countdown = 7; // Reset lại đếm ngược
-                document.getElementById("countdownTimer").innerText = `Thời gian đến dự đoán: ${countdown}s`;
-            }, 30000); // Cập nhật dự đoán mỗi 30 giây
+        function resetPrediction() {
+            clearInterval(predictionInterval);
+            clearInterval(countdownInterval);
+            correctPredictions = 0;
+            totalPredictions = 0;
+            newsImpact = '';
+            document.getElementById("result").innerHTML = '';
+            document.getElementById("accuracy").innerHTML = '';
+            document.getElementById("countdownTimer").innerText = `Thời gian đến dự đoán: 0s`;
         }
     </script>
 </body>
