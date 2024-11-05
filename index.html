@@ -75,7 +75,6 @@
     <div class="timer" id="countdownTimer">Thời gian đến dự đoán: 0s</div>
     <div id="result"></div>
     <p id="accuracy"></p>
-    <p id="learningMessage"></p>
 
     <script>
         let correctPredictions = 0;
@@ -194,52 +193,51 @@
                 currentRsiThreshold.upper += 5; // Tăng ngưỡng trên
                 currentRsiThreshold.lower -= 5; // Giảm ngưỡng dưới
                 console.log(`Ngưỡng RSI đã được điều chỉnh: ${currentRsiThreshold.upper}, ${currentRsiThreshold.lower}`);
-                
-                // Cập nhật thông báo cho người dùng
-                document.getElementById("learningMessage").innerText = "Bot đang điều chỉnh ngưỡng RSI do tỷ lệ thua cao.";
-            } else {
-                // Xóa thông báo nếu không có điều chỉnh
-                document.getElementById("learningMessage").innerText = "";
             }
 
             // Cập nhật kết quả và hiển thị mũi tên
-            document.getElementById("result").innerHTML = `Dự đoán: ${trend} (Xác suất: ${probability}%)<br>` +
-                `<span class="arrow ${trend === "Giảm" ? "down-arrow" : "up-arrow"}">${trend === "Giảm" ? "↓" : "↑"}</span>`;
+            document.getElementById("result").innerHTML = `Dự đoán: ${trend} (Xác suất: ${probability}%)`;
+            const arrow = trend === "Tăng" ? `<span class="arrow up-arrow">↑</span>` : `<span class="arrow down-arrow">↓</span>`;
+            document.getElementById("result").innerHTML += arrow;
 
             // Cập nhật tỷ lệ chính xác
             const accuracyPercentage = ((correctPredictions / totalPredictions) * 100).toFixed(2);
-            document.getElementById("accuracy").innerText = `Tỷ lệ chính xác: ${accuracyPercentage}%`;
+            document.getElementById("accuracy").innerHTML = `Tổng số lượt dự đoán: ${totalPredictions}, Tỷ lệ chính xác: ${accuracyPercentage}% (Học hỏi từ các phương pháp để tăng tỷ lệ win)`;
         }
 
         function startAutoPrediction() {
-            const interval = document.getElementById("chartInterval").value;
-            let timeInterval = (interval === "30s") ? 30000 : 60000; // 30s hoặc 1m
-            predictionInterval = setInterval(() => {
-                makePrediction(document.getElementById("option").value);
-            }, timeInterval);
+            resetCountdown();
+            const option = document.getElementById("option").value;
 
-            // Bắt đầu đếm ngược
-            let countdown = 5;
+            predictionInterval = setInterval(async () => {
+                await makePrediction(option);
+            }, 30000); // Dự đoán mỗi 30 giây
+
             countdownInterval = setInterval(() => {
-                document.getElementById("countdownTimer").innerText = `Thời gian đến dự đoán: ${countdown}s`;
-                countdown--;
-                if (countdown < 0) {
-                    clearInterval(countdownInterval);
-                }
-            }, 1000);
+                let timeLeft = 30; // Tổng thời gian là 30 giây
+                const timer = setInterval(() => {
+                    timeLeft--;
+                    document.getElementById("countdownTimer").innerText = `Thời gian đến dự đoán: ${timeLeft}s`;
+                    if (timeLeft <= 0) {
+                        clearInterval(timer);
+                    }
+                }, 1000);
+            }, 30000); // Cập nhật đếm ngược mỗi 30 giây
+        }
+
+        function resetCountdown() {
+            clearInterval(countdownInterval);
+            document.getElementById("countdownTimer").innerText = `Thời gian đến dự đoán: 30s`;
         }
 
         function resetPrediction() {
             clearInterval(predictionInterval);
-            clearInterval(countdownInterval);
+            resetCountdown();
             correctPredictions = 0;
             totalPredictions = 0;
-            currentRsiThreshold = { upper: 70, lower: 30 }; // Reset ngưỡng RSI về ban đầu
-            document.getElementById("result").innerText = "";
-            document.getElementById("accuracy").innerText = "Tỷ lệ chính xác: 0%";
-            document.getElementById("learningMessage").innerText = "";
-            document.getElementById("countdownTimer").innerText = "Thời gian đến dự đoán: 0s";
-            console.log("Dự đoán đã được đặt lại.");
+            document.getElementById("result").innerHTML = "";
+            document.getElementById("accuracy").innerHTML = "";
+            currentRsiThreshold = { upper: 70, lower: 30 }; // Đặt lại ngưỡng RSI
         }
     </script>
 </body>
