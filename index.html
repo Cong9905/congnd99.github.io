@@ -75,6 +75,7 @@
     <div class="timer" id="countdownTimer">Thời gian đến dự đoán: 0s</div>
     <div id="result"></div>
     <p id="accuracy"></p>
+    <p id="learningMessage"></p>
 
     <script>
         let correctPredictions = 0;
@@ -193,6 +194,12 @@
                 currentRsiThreshold.upper += 5; // Tăng ngưỡng trên
                 currentRsiThreshold.lower -= 5; // Giảm ngưỡng dưới
                 console.log(`Ngưỡng RSI đã được điều chỉnh: ${currentRsiThreshold.upper}, ${currentRsiThreshold.lower}`);
+                
+                // Cập nhật thông báo cho người dùng
+                document.getElementById("learningMessage").innerText = "Bot đang điều chỉnh ngưỡng RSI do tỷ lệ thua cao.";
+            } else {
+                // Xóa thông báo nếu không có điều chỉnh
+                document.getElementById("learningMessage").innerText = "";
             }
 
             // Cập nhật kết quả và hiển thị mũi tên
@@ -205,25 +212,21 @@
         }
 
         function startAutoPrediction() {
-            const intervalTime = 30000; // Thời gian giữa các dự đoán
-            const countdownTime = 10; // Thời gian đếm ngược
-
+            const interval = document.getElementById("chartInterval").value;
+            let timeInterval = (interval === "30s") ? 30000 : 60000; // 30s hoặc 1m
             predictionInterval = setInterval(() => {
-                const option = document.getElementById("option").value;
-                makePrediction(option);
-            }, intervalTime);
+                makePrediction(document.getElementById("option").value);
+            }, timeInterval);
 
+            // Bắt đầu đếm ngược
+            let countdown = 5;
             countdownInterval = setInterval(() => {
-                let countdown = countdownTime;
-                const timerElement = document.getElementById("countdownTimer");
-                const countdownLoop = setInterval(() => {
-                    timerElement.innerText = `Thời gian đến dự đoán: ${countdown}s`;
-                    if (countdown <= 0) {
-                        clearInterval(countdownLoop);
-                    }
-                    countdown--;
-                }, 1000);
-            }, intervalTime);
+                document.getElementById("countdownTimer").innerText = `Thời gian đến dự đoán: ${countdown}s`;
+                countdown--;
+                if (countdown < 0) {
+                    clearInterval(countdownInterval);
+                }
+            }, 1000);
         }
 
         function resetPrediction() {
@@ -231,10 +234,12 @@
             clearInterval(countdownInterval);
             correctPredictions = 0;
             totalPredictions = 0;
-            resultsHistory.length = 0;
-            document.getElementById("result").innerHTML = '';
-            document.getElementById("accuracy").innerText = '';
-            document.getElementById("countdownTimer").innerText = 'Thời gian đến dự đoán: 0s';
+            currentRsiThreshold = { upper: 70, lower: 30 }; // Reset ngưỡng RSI về ban đầu
+            document.getElementById("result").innerText = "";
+            document.getElementById("accuracy").innerText = "Tỷ lệ chính xác: 0%";
+            document.getElementById("learningMessage").innerText = "";
+            document.getElementById("countdownTimer").innerText = "Thời gian đến dự đoán: 0s";
+            console.log("Dự đoán đã được đặt lại.");
         }
     </script>
 </body>
