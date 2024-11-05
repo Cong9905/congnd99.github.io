@@ -80,6 +80,7 @@
     <script>
         let correctPredictions = 0;
         let totalPredictions = 0;
+        let predictionHistory = []; // Lưu trữ lịch sử dự đoán
         let predictionInterval;
         let countdownInterval;
         const predictionOffset = 5000; // Đưa ra dự đoán trước 5 giây
@@ -178,6 +179,9 @@
 
             const isCorrect = (trend.includes(actualDirection)); // So sánh xu hướng dự đoán với xu hướng thực tế
 
+            // Lưu kết quả dự đoán
+            logPrediction(rsi, trend, actualDirection, isCorrect);
+
             if (isCorrect) correctPredictions++;
             totalPredictions++;
 
@@ -197,42 +201,46 @@
             document.getElementById("accuracy").innerHTML = `
                 <p>Tổng số dự đoán: ${totalPredictions}</p>
                 <p>Số lần dự đoán đúng: ${correctPredictions}</p>
-                <p>Số lần dự đoán sai: ${totalPredictions - correctPredictions}</p>
-                <p>Độ chính xác: ${(correctPredictions / totalPredictions * 100).toFixed(2)}%</p>
+                <p>Tỷ lệ chính xác: ${(correctPredictions / totalPredictions * 100).toFixed(2)}%</p>
             `;
         }
 
-        function startAutoPrediction() {
-            const option = document.getElementById("option").value;
-
-            clearInterval(predictionInterval);
-            clearInterval(countdownInterval);
-
-            countdownTimer(0, (document.getElementById("chartInterval").value === "30s" ? 30 : 60));
-
-            async function syncPrediction() {
-                const secondsToNextCandle = (document.getElementById("chartInterval").value === "30s" ? 30 : 60) - ((new Date().getSeconds()) % (document.getElementById("chartInterval").value === "30s" ? 30 : 60));
-                
-                console.log(`Seconds to next candle: ${secondsToNextCandle}`); // Thêm log để theo dõi
-                if (secondsToNextCandle <= 7 && secondsToNextCandle > 0) {
-                    await makePrediction(option);
-                }
-            }
-
-            predictionInterval = setInterval(syncPrediction, (document.getElementById("chartInterval").value === "30s" ? 30000 : 60000));
+        function logPrediction(rsi, trend, actualDirection, isCorrect) {
+            predictionHistory.push({ rsi, trend, actualDirection, isCorrect });
+            console.log("Lịch sử dự đoán:", predictionHistory);
         }
 
-        function countdownTimer(start, duration) {
-            let timeRemaining = duration;
+        function retrainModel() {
+            // Xử lý dữ liệu từ predictionHistory để huấn luyện lại mô hình
+            // Có thể sử dụng TensorFlow.js hoặc các thư viện khác để huấn luyện lại mô hình
+            console.log("Huấn luyện lại mô hình với dữ liệu:", predictionHistory);
+        }
 
+        function startAutoPrediction() {
+            if (predictionInterval) clearInterval(predictionInterval);
+            if (countdownInterval) clearInterval(countdownInterval);
+
+            let countdown = 7; // 7 giây cho đếm ngược
             countdownInterval = setInterval(() => {
-                if (timeRemaining <= 0) {
+                if (countdown > 0) {
+                    document.getElementById("countdownTimer").innerText = `Thời gian đến dự đoán: ${countdown}s`;
+                    countdown--;
+                } else {
                     clearInterval(countdownInterval);
-                    return;
+                    document.getElementById("countdownTimer").innerText = `Thời gian đến dự đoán: 0s`;
+                    const option = document.getElementById("option").value;
+                    makePrediction(option); // Gọi hàm dự đoán
+
+                    // Huấn luyện lại mô hình định kỳ
+                    retrainModel(); // Huấn luyện lại mô hình với dữ liệu lịch sử
+                    countdown = 7; // Reset lại đếm ngược
                 }
-                document.getElementById("countdownTimer").innerText = `Thời gian đến dự đoán: ${timeRemaining}s`;
-                timeRemaining--;
             }, 1000);
+
+            predictionInterval = setInterval(() => {
+                countdown = 7; // Reset lại đếm ngược
+                document.getElementById("countdownTimer").innerText = `Thời gian đến dự đoán: ${countdown}s`;
+            }, 30000); // Cập nhật dự đoán mỗi 30 giây
         }
     </script>
 </body>
