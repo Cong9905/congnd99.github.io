@@ -1,35 +1,11 @@
 <!DOCTYPE html>
-<html lang="vi">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Biểu đồ BTC/USDT với Dự đoán Tự động</title>
+    <title>BTC/USDT Chart with Auto Prediction</title>
     <script src="https://s3.tradingview.com/tv.js"></script>
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 20px;
-            background-color: #f9f9f9;
-        }
-        h1 {
-            text-align: center;
-            color: #333;
-        }
-        .tradingview-widget-container {
-            margin: 20px 0;
-        }
-        label {
-            margin-right: 10px;
-        }
-        select, button {
-            margin-right: 20px;
-            padding: 5px 10px;
-        }
-        .timer {
-            font-size: 1.5em;
-            margin: 10px 0;
-            color: #555;
-        }
         .arrow {
             font-size: 2em;
             display: inline-block;
@@ -40,18 +16,14 @@
         .down-arrow {
             color: red;
         }
-        #result, #warning {
-            font-size: 1.2em;
-            margin: 10px 0;
-        }
-        #accuracy {
-            font-size: 1em;
+        .timer {
+            font-size: 1.5em;
             margin: 10px 0;
         }
     </style>
 </head>
 <body>
-    <h1>Biểu đồ BTC/USDT</h1>
+    <h1>BTC/USDT Chart</h1>
 
     <div class="tradingview-widget-container">
         <div id="tradingview_12345"></div>
@@ -63,7 +35,7 @@
                 "timezone": "Etc/UTC",
                 "theme": "light",
                 "style": "1",
-                "locale": "vi",
+                "locale": "en",
                 "toolbar_bg": "#f1f3f6",
                 "enable_publishing": false,
                 "withdateranges": true,
@@ -93,27 +65,23 @@
 
         <label for="option">Chọn tính toán:</label>
         <select id="option">
-            <option value="14">14 nến gần nhất</option>
-            <option value="3">3 nến gần nhất</option>
+            <option value="5">5 nến gần nhất</option>
         </select>
         <button id="predictButton" onclick="startAutoPrediction()">Bắt đầu dự đoán liên tục</button>
         <button id="resetButton" onclick="resetPrediction()">Đặt lại</button>
     </div>
 
-    <div class="timer" id="countdownTimer">Thời gian đến dự đoán: 30s</div>
+    <div class="timer" id="countdownTimer">Thời gian đến dự đoán: 0s</div>
     <div id="result"></div>
-    <div id="warning"></div>
     <p id="accuracy"></p>
+    <p id="learningMessage"></p> <!-- Thông báo học hỏi ở cuối dòng -->
 
     <script>
         let correctPredictions = 0;
-        let incorrectPredictions = 0;
         let totalPredictions = 0;
         let predictionInterval;
         let countdownInterval;
-        let timeLeft;
-        const predictionOffset = 5000; // Đưa ra dự đoán trước 5 giây
-        let predictionFrequency = 30; // Thời gian giữa các dự đoán
+        const predictionOffset = 7000; // Đưa ra dự đoán trước 7 giây
         const resultsHistory = [];
         const lossThreshold = 0.2; // Ngưỡng thua
         let currentRsiThreshold = { upper: 70, lower: 30 }; // Ngưỡng RSI ban đầu
@@ -122,7 +90,7 @@
             const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
             const response = await fetch(url);
             if (!response.ok) {
-                throw new Error(`Lỗi khi lấy dữ liệu: ${response.statusText}`);
+                throw new Error(`Error fetching data: ${response.statusText}`);
             }
             const data = await response.json();
             return data;
@@ -214,71 +182,81 @@
 
             if (isCorrect) {
                 correctPredictions++;
+                resultsHistory.push({ prediction: trend, actual: actualDirection, correct: true });
             } else {
-                incorrectPredictions++;
+                resultsHistory.push({ prediction: trend, actual: actualDirection, correct: false });
             }
-
             totalPredictions++;
 
-            updateAccuracyDisplay();
-            displayResult(trend, probability, isCorrect);
-        }
-
-        function updateAccuracyDisplay() {
-            const accuracy = ((correctPredictions / totalPredictions) * 100).toFixed(2);
-            document.getElementById("accuracy").innerText = `Tổng dự đoán: ${totalPredictions}, Đúng: ${correctPredictions}, Sai: ${incorrectPredictions}, Tỉ lệ đúng: ${accuracy}%`;
-        }
-
-        function displayResult(trend, probability, isCorrect) {
-            const resultElement = document.getElementById("result");
-            const arrowElement = document.createElement("span");
-            arrowElement.className = trend === "Tăng" ? "up-arrow arrow" : "down-arrow arrow";
-            arrowElement.innerHTML = trend === "Tăng" ? "↑" : "↓"; // Hiển thị mũi tên cho dự đoán
-
-            resultElement.innerHTML = `Dự đoán: ${trend} với xác suất ${probability}% `;
-            resultElement.appendChild(arrowElement);
-        }
-
-        function updateCountdown() {
-            const timerElement = document.getElementById("countdownTimer");
-            timeLeft--;
-
-            if (timeLeft <= 0) {
-                timeLeft = predictionFrequency; // Đặt lại thời gian đếm ngược
+            // Cập nhật ngưỡng nếu tỷ lệ thua lớn hơn 20%
+            if ((totalPredictions > 0) && (correctPredictions / totalPredictions < (1 - lossThreshold))) {
+                currentRsiThreshold.upper += 5; // Tăng ngưỡng trên
+                currentRsiThreshold.lower -= 5; // Giảm ngưỡng dưới
+                console.log(`Ngưỡng RSI đã được điều chỉnh: ${currentRsiThreshold.upper}, ${currentRsiThreshold.lower}`);
             }
 
-            if (timeLeft <= 7) {
-                // Đưa ra dự đoán trong khoảng từ 7 đến 5 giây
-                if (timeLeft === 5) {
-                    const option = document.getElementById("option").value;
-                    makePrediction(option);
-                }
+            // Cập nhật kết quả và hiển thị mũi tên
+            document.getElementById("result").innerHTML = `Dự đoán: ${trend} (${probability}%)<br>`;
+            if (trend.includes("Tăng")) {
+                document.getElementById("result").innerHTML += `<span class="arrow up-arrow">↑</span>`;
+            } else if (trend.includes("Giảm")) {
+                document.getElementById("result").innerHTML += `<span class="arrow down-arrow">↓</span>`;
+            } else {
+                document.getElementById("result").innerHTML += "Không xác định.";
             }
 
-            timerElement.innerText = `Thời gian đến dự đoán: ${timeLeft}s`;
+            // Cập nhật độ chính xác
+            const accuracyRate = (totalPredictions > 0) ? (correctPredictions / totalPredictions * 100).toFixed(2) : 0;
+            document.getElementById("accuracy").innerText = `Tổng số dự đoán: ${totalPredictions}, Số đúng: ${correctPredictions}, Tỷ lệ: ${accuracyRate}%`;
+
+            // Cập nhật thông điệp học hỏi
+            document.getElementById("learningMessage").innerText = "Bot đang học hỏi từ các mô hình dự đoán.";
         }
 
         function startAutoPrediction() {
             clearInterval(predictionInterval);
             clearInterval(countdownInterval);
-            timeLeft = (document.getElementById("chartInterval").value === "30s") ? 30 : 60; // Thiết lập thời gian dự đoán
-            predictionFrequency = (document.getElementById("chartInterval").value === "30s") ? 30 : 60; // Thời gian giữa các dự đoán
-            countdownInterval = setInterval(updateCountdown, 1000);
+
+            const intervalSelect = document.getElementById("chartInterval").value;
+            const isThirtySeconds = (intervalSelect === "30s");
+
+            // Kiểm tra thời gian đóng nến
+            const countdownDuration = isThirtySeconds ? 30 : 60;
+
+            countdownTimer(countdownDuration);
             predictionInterval = setInterval(() => {
-                const option = document.getElementById("option").value;
-                makePrediction(option);
-            }, predictionFrequency * 1000); // Thiết lập khoảng thời gian giữa các dự đoán
+                makePrediction(5);
+            }, countdownDuration * 1000); // Tự động dự đoán sau mỗi 30 giây hoặc 1 phút
+        }
+
+        function countdownTimer(duration) {
+            let countdownTime = duration;
+
+            countdownInterval = setInterval(() => {
+                document.getElementById("countdownTimer").innerText = `Thời gian đến dự đoán: ${countdownTime}s`;
+                countdownTime--;
+
+                if (countdownTime < 0) {
+                    clearInterval(countdownInterval);
+                    document.getElementById("countdownTimer").innerText = "Thời gian đến dự đoán: 0s";
+                    // Đặt lại thời gian để chuẩn bị cho vòng đếm tiếp theo
+                    countdownTime = duration;
+                }
+            }, 1000);
         }
 
         function resetPrediction() {
             clearInterval(predictionInterval);
             clearInterval(countdownInterval);
             correctPredictions = 0;
-            incorrectPredictions = 0;
             totalPredictions = 0;
+            resultsHistory.length = 0; // Đặt lại lịch sử kết quả
+            currentRsiThreshold = { upper: 70, lower: 30 }; // Đặt lại ngưỡng RSI
+
             document.getElementById("result").innerText = "";
             document.getElementById("accuracy").innerText = "";
-            document.getElementById("countdownTimer").innerText = "Thời gian đến dự đoán: 30s";
+            document.getElementById("learningMessage").innerText = ""; // Xóa thông điệp học hỏi
+            document.getElementById("countdownTimer").innerText = "Thời gian đến dự đoán: 0s";
         }
     </script>
 </body>
