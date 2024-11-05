@@ -16,11 +16,13 @@
             color: red;
         }
         canvas {
-            max-width: 600px;
-            max-height: 400px;
+            max-width: 100%; /* Cho phép canvas co dãn theo chiều rộng của màn hình */
+            height: auto;    /* Chiều cao tự động */
         }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom"></script>
 </head>
 <body>
     <h1>Dự Đoán Xu Hướng BTC/USDT</h1>
@@ -120,6 +122,23 @@
                     }]
                 },
                 options: {
+                    responsive: true, // Biểu đồ sẽ phản hồi với kích thước màn hình
+                    plugins: {
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                        },
+                        zoom: {
+                            pan: {
+                                enabled: true,
+                                mode: 'xy'
+                            },
+                            zoom: {
+                                enabled: true,
+                                mode: 'xy'
+                            }
+                        }
+                    },
                     scales: {
                         x: {
                             type: 'time',
@@ -205,15 +224,14 @@
             async function syncPrediction() {
                 const secondsToNextCandle = (document.getElementById("chartInterval").value === "30s" ? 30 : 60) - (new Date().getSeconds() % (document.getElementById("chartInterval").value === "30s" ? 30 : 60));
                 
-                console.log("Seconds to next candle:", secondsToNextCandle); // Thêm log để kiểm tra thời gian còn lại
+                console.log("Dự đoán trong giây:", secondsToNextCandle);
 
-                if (secondsToNextCandle <= 7 && secondsToNextCandle > 0) {
-                    console.log("Calling makePrediction..."); // Log khi gọi hàm dự đoán
+                if (secondsToNextCandle <= 5) {
                     await makePrediction(option);
                 }
             }
 
-            predictionInterval = setInterval(syncPrediction, (document.getElementById("chartInterval").value === "30s" ? 30000 : 60000));
+            predictionInterval = setInterval(syncPrediction, 1000);
         }
 
         function countdownTimer(initialTime, totalTime) {
