@@ -85,21 +85,16 @@
         <p>RSI (Tối thiểu / Tối đa): <span id="rsiRange">30 / 70</span></p>
         <p>Khối lượng trung bình: <span id="avgVolume">0</span></p>
         <p>Khối lượng hiện tại: <span id="lastVolume">0</span></p>
+        <p>Giá cuối cùng: <span id="finalPrice">0</span></p>
     </div>
 
     <script>
-    let correctPredictions = 0;
-    let totalPredictions = 0;
     let winCount = 0;
     let lossCount = 0;
-    let predictionInterval;
+    let totalPredictions = 0;
     let countdownInterval;
     const countdownDuration = 30; // Thời gian đếm ngược ban đầu
-    const predictionOffset = 5000; // Đưa ra dự đoán trước 5 giây
-    let nextPredictionTime; // Thời gian dự đoán tiếp theo
-    const resultsHistory = [];
-    const lossThreshold = 0.2; // Ngưỡng thua
-    let currentRsiThreshold = { upper: 70, lower: 30 }; // Ngưỡng RSI ban đầu
+    let countdownTime = countdownDuration;
 
     async function fetchKlines(symbol, interval, limit) {
         const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
@@ -109,22 +104,6 @@
         }
         const data = await response.json();
         return data;
-    }
-
-    function convertTo30sCandles(data) {
-        const thirtySecondCandles = [];
-        for (let i = 0; i < data.length; i++) {
-            const open = parseFloat(data[i][1]);
-            const close = parseFloat(data[i][4]);
-            const high = Math.max(open, close, parseFloat(data[i][2]), parseFloat(data[i][3]));
-            const low = Math.min(open, close, parseFloat(data[i][2]), parseFloat(data[i][3]));
-            const volume = parseFloat(data[i][5]);
-
-            // Thêm 2 nến 30 giây cho mỗi nến 1 phút
-            thirtySecondCandles.push([data[i][0], open, high, low, close / 2, volume / 2]);
-            thirtySecondCandles.push([data[i][0] + 30000, open, high, low, close / 2, volume / 2]); // 30000 ms = 30s
-        }
-        return thirtySecondCandles;
     }
 
     function calculateRSI(prices) {
@@ -148,20 +127,14 @@
     }
 
     function predictTrend(rsi, avgVolume, lastVolume) {
-        if (rsi > currentRsiThreshold.upper) {
+        if (rsi > 70) {
             return ["Giảm", 70];
-        } else if (rsi < currentRsiThreshold.lower) {
+        } else if (rsi < 30) {
             return ["Tăng", 70];
-        } else if (rsi >= currentRsiThreshold.lower && rsi <= currentRsiThreshold.upper) {
-            if (lastVolume > avgVolume) {
-                return ["Tăng", 60];
-            } else if (lastVolume < avgVolume) {
-                return ["Giảm", 60];
-            } else {
-                return ["Không xác định", 50]; // Trả về không xác định nếu khối lượng không khác biệt
-            }
         } else {
-            return ["Không xác định", 50]; // Bảo đảm sẽ có giá trị trở về nếu không thỏa mãn điều kiện
+            if (lastVolume > avgVolume) return ["Tăng", 60];
+            else if (lastVolume < avgVolume) return ["Giảm", 60];
+            else return ["Không xác định", 50];
         }
     }
 
@@ -169,31 +142,20 @@
         console.log("Thực hiện dự đoán với tùy chọn:", option);
         const limit = parseInt(option);
         const interval = document.getElementById("chartInterval").value;
-        const provider = document.getElementById("provider").value;
-
-        let data;
-        if (interval === "30s" && provider === "binance") {
-            data = await fetchKlines("BTCUSDT", "1m", limit);
-            data = convertTo30sCandles(data);
-        } else {
-            data = await fetchKlines("BTCUSDT", interval, limit);
-        }
-
+        const data = await fetchKlines("BTCUSDT", interval === "30s" ? "1m" : interval, limit);
         const prices = data.map(candle => parseFloat(candle[4]));
         const rsi = calculateRSI(prices);
         const avgVolume = analyzeVolume(data);
         const lastVolume = parseFloat(data[data.length - 1][5]);
-
-        console.log(`RSI: ${rsi.toFixed(2)}, Avg Volume: ${avgVolume}, Last Volume: ${lastVolume}`);
-
         const [trend, probability] = predictTrend(rsi, avgVolume, lastVolume);
 
         // Kiểm tra dự đoán với giá thực tế
-        const previousClose = parseFloat(data[data.length - 2][4]);
-        const currentClose = lastVolume;
-        const result = currentClose > previousClose ? "Tăng" : "Giảm";
-
+        const finalPrice = prices[prices.length - 1];
+        const previousClose = prices[prices.length - 2];
+        const result = finalPrice > previousClose ? "Tăng" : "Giảm";
         const isWin = trend === result;
+
+        // Cập nhật thống kê
         if (isWin) {
             winCount++;
         } else {
@@ -201,31 +163,75 @@
         }
         totalPredictions++;
 
+        // Hiển thị kết quả
         document.getElementById("winCount").textContent = winCount;
         document.getElementById("lossCount").textContent = lossCount;
         document.getElementById("totalCount").textContent = totalPredictions;
         document.getElementById("result").textContent = `Dự đoán: ${trend} (Xác suất: ${probability}%)`;
         document.getElementById("accuracy").textContent = `Tỉ lệ chính xác: ${(winCount / totalPredictions * 100).toFixed(2)}%`;
+        document.getElementById("finalPrice").textContent = finalPrice.toFixed(2);
 
-        resultsHistory.push({ trend, result, rsi, avgVolume, lastVolume });
+        // Lưu dữ liệu dự đoán lên GitHub
+        await storePredictionOnGitHub({
+            timestamp: new Date().toISOString(),
+            prediction: trend,
+            probability: probability,
+            actual: result,
+            rsi: rsi,
+            volume: {
+                avg: avgVolume,
+                last: lastVolume
+            }
+        });
 
-        console.log("Dự đoán:", trend);
+        // Đưa thông báo chiến lược học hỏi
+        if ((winCount / totalPredictions) < 0.7) {
+            document.getElementById("learningMessage").textContent = "Cần điều chỉnh chiến lược để tăng tỉ lệ thắng!";
+        } else {
+            document.getElementById("learningMessage").textContent = "Chiến lược hiệu quả!";
+        }
+    }
+
+    async function storePredictionOnGitHub(data) {
+        const response = await fetch('https://api.github.com/Cong9905/congnd99.github.io/blob/main/predictions.json', {
+            method: 'PUT',
+            headers: {
+                'Authorization': 'Bearer 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',
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                message: 'Thêm kết quả dự đoán mới',
+                content: btoa(JSON.stringify(data)),
+                sha: 'SHA của tệp JSON hiện tại'
+            })
+        });
+
+        if (response.ok) {
+            console.log("Dự đoán đã được lưu vào GitHub.");
+        } else {
+            console.error("Lỗi khi lưu dữ liệu vào GitHub:", response);
+        }
     }
 
     function startAutoPrediction() {
-        const selectedOption = document.getElementById("option").value;
-        predictionInterval = setInterval(() => makePrediction(selectedOption), 30000);
+        document.getElementById("predictButton").disabled = true;
+        countdownTime = countdownDuration;
+        countdownInterval = setInterval(function() {
+            if (countdownTime > 0) {
+                countdownTime--;
+                document.getElementById("countdownTimer").textContent = `Thời gian đến dự đoán: ${countdownTime}s`;
+            } else {
+                makePrediction(document.getElementById("option").value);
+                countdownTime = countdownDuration;
+            }
+        }, 1000);
     }
 
     function resetPrediction() {
-        winCount = 0;
-        lossCount = 0;
-        totalPredictions = 0;
-        document.getElementById("winCount").textContent = winCount;
-        document.getElementById("lossCount").textContent = lossCount;
-        document.getElementById("totalCount").textContent = totalPredictions;
-        document.getElementById("result").textContent = "";
-        document.getElementById("accuracy").textContent = "";
+        clearInterval(countdownInterval);
+        countdownTime = countdownDuration;
+        document.getElementById("countdownTimer").textContent = `Thời gian đến dự đoán: ${countdownTime}s`;
+        document.getElementById("predictButton").disabled = false;
     }
     </script>
 </body>
