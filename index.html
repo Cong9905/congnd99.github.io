@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BTC Wallet Checker</title>
+    <title>BTC Wallet Generator</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -23,104 +23,56 @@
     </style>
 </head>
 <body>
-    <h1>BTC Wallet Checker</h1>
-    <input type="text" id="btcAddress" placeholder="Enter BTC Address" size="50">
-    <br>
-    <button id="startButton">Start</button>
-    <button id="generateButton" disabled>Generate Seed Phrases</button>
+    <h1>BTC Wallet Generator</h1>
+    <button id="startButton">Generate Wallet</button>
     <div id="output"></div>
 
+    <script src="https://cdn.jsdelivr.net/npm/bip39@3.0.4"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bitcoinjs-lib@6.0.2"></script>
     <script>
         const outputDiv = document.getElementById("output");
-        const generateButton = document.getElementById("generateButton");
-        let originalAddress = "";
-        let processRunning = false;
-
-        // Blockchair API URL
         const API_URL = "https://api.blockchair.com/bitcoin/dashboards/address/";
+        const MNEMONIC_WORDLIST = bip39.wordlists.english; // Standard BIP39 wordlist
 
-        // Step 1: Start - Validate address and fetch balance
         document.getElementById("startButton").addEventListener("click", async () => {
-            const address = document.getElementById("btcAddress").value.trim();
-            if (!address) {
-                outputDiv.textContent = "Please enter a BTC address.";
-                return;
-            }
+            outputDiv.textContent = "Generating wallet and checking balance...";
 
-            outputDiv.textContent = "Checking address...";
+            let found = false;
+            while (!found) {
+                // Generate 12-word mnemonic
+                const mnemonic = bip39.generateMnemonic(128, null, MNEMONIC_WORDLIST);
+                outputDiv.textContent = `Generated Mnemonic:\n${mnemonic}\nChecking balance...`;
 
-            try {
-                // Validate address format (simplified)
-                if (!/^[13][a-km-zA-HJ-NP-Z1-9]{25,34}$/.test(address)) {
-                    throw new Error("Invalid BTC address format.");
+                // Convert mnemonic to seed
+                const seed = await bip39.mnemonicToSeed(mnemonic);
+
+                // Derive BTC address using BIP44
+                const root = bitcoin.bip32.fromSeed(seed);
+                const child = root.derivePath("m/44'/0'/0'/0/0"); // Standard BTC path
+                const { address } = bitcoin.payments.p2pkh({ pubkey: child.publicKey });
+
+                // Check balance using Blockchair API
+                const balance = await checkBalance(address);
+                if (balance > 0) {
+                    found = true;
+                    outputDiv.textContent = `Success!\nAddress: ${address}\nBalance: ${balance} satoshis\n\nMnemonic:\n${mnemonic}`;
                 }
+            }
+        });
 
-                // Fetch balance and address details from Blockchair
+        async function checkBalance(address) {
+            try {
                 const response = await fetch(`${API_URL}${address}`);
                 if (!response.ok) {
                     throw new Error("Failed to connect to Blockchair API.");
                 }
 
                 const data = await response.json();
-                const balance = data.data[address]?.address.balance || 0;
-                const type = address.startsWith("1") ? "P2PKH (Legacy)" : "P2SH (SegWit)";
-
-                originalAddress = address; // Store the original address for further checks
-                outputDiv.textContent = `Address: ${address}\nBalance: ${balance} satoshis\nType: ${type}`;
-
-                // Enable the Generate button
-                generateButton.disabled = false;
+                return data.data[address]?.address.balance || 0;
             } catch (error) {
-                outputDiv.textContent = `Error: ${error.message}`;
+                console.error("Error checking balance:", error);
+                return 0;
             }
-        });
-
-        // Step 2: Generate Seed Phrases and Validate
-        generateButton.addEventListener("click", async () => {
-            if (processRunning || !originalAddress) {
-                outputDiv.textContent = "Process is already running or address is not verified.";
-                return;
-            }
-
-            processRunning = true;
-            outputDiv.textContent = "Generating seed phrases and verifying...";
-
-            try {
-                while (processRunning) {
-                    // Generate 12 seed phrases
-                    const seedPhrases = generateSeedPhrases();
-
-                    // Derive wallet address (simulated for demo; replace with actual derivation)
-                    const derivedAddress = deriveAddressFromSeed(seedPhrases);
-
-                    // Check if derived address matches the original
-                    if (derivedAddress === originalAddress) {
-                        outputDiv.textContent = `Verification successful!\n\nGenerated Seed Phrases:\n${seedPhrases.join(" ")}`;
-                        processRunning = false;
-                        break;
-                    }
-                }
-            } catch (error) {
-                outputDiv.textContent = `Error: ${error.message}`;
-            } finally {
-                processRunning = false;
-            }
-        });
-
-        function generateSeedPhrases() {
-            // Generate 12 random seed phrases (replace with real mnemonic generation)
-            const words = [
-                "apple", "orange", "banana", "grape", "melon", "kiwi", "pear", "plum", "peach", "cherry", 
-                "mango", "berry", "pineapple", "lemon", "lime", "fig", "date", "coconut"
-            ];
-            return Array.from({ length: 12 }, () => words[Math.floor(Math.random() * words.length)]);
-        }
-
-        function deriveAddressFromSeed(seedPhrases) {
-            // Simulate wallet derivation from seed (replace with actual derivation logic)
-            // For demo purposes, assume derived address matches if first word starts with 'a'
-            const firstWord = seedPhrases[0];
-            return firstWord.startsWith("a") ? originalAddress : "SimulatedIncorrectAddress";
         }
     </script>
 </body>
