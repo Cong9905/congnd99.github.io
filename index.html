@@ -51,7 +51,7 @@
                 const child = root.derivePath("m/44'/0'/0'/0/0"); // Standard BTC path
                 const { address } = bitcoin.payments.p2pkh({ pubkey: child.publicKey });
 
-                // Check balance using Blockchair API
+                // Check balance using Blockchain.info API
                 const balance = await checkBalance(address);
                 if (balance > 0) {
                     found = true;
@@ -64,11 +64,11 @@
             try {
                 const response = await fetch(`${API_URL}${address}`);
                 if (!response.ok) {
-                    throw new Error("Failed to connect to Blockchair API.");
+                    throw new Error("Failed to connect to Blockchain.info API.");
                 }
 
                 const data = await response.json();
-                return data.data[address]?.address.balance || 0;
+                return data[address]?.final_balance || 0; // Return balance in satoshis
             } catch (error) {
                 console.error("Error checking balance:", error);
                 return 0;
