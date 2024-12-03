@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BTC Wallet Generator</title>
+    <title>BTC Wallet Balance Checker</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -23,50 +23,29 @@
     </style>
 </head>
 <body>
-    <h1>BTC Wallet Generator</h1>
-    <button id="startButton">Generate Wallet</button>
+    <h1>BTC Wallet Tool</h1>
+    <input type="text" id="addressInput" placeholder="Enter BTC Address" size="40">
+    <br>
+    <button id="startButton">Check Balance</button>
+    <button id="generateMnemonicButton" disabled>Generate Mnemonic</button>
     <div id="output"></div>
 
     <script src="https://cdn.jsdelivr.net/npm/bip39@3.0.4"></script>
     <script src="https://cdn.jsdelivr.net/npm/bitcoinjs-lib@6.0.2"></script>
     <script>
-        const outputDiv = document.getElementById("output");
         const API_URL = "https://blockchain.info/balance?active=";
-        const MNEMONIC_WORDLIST = bip39.wordlists.english; // Standard BIP39 wordlist
+        const outputDiv = document.getElementById("output");
+        const addressInput = document.getElementById("addressInput");
+        const startButton = document.getElementById("startButton");
+        const generateMnemonicButton = document.getElementById("generateMnemonicButton");
 
-        document.getElementById("startButton").addEventListener("click", async () => {
-            outputDiv.textContent = "Generating wallet and checking balance...";
-
-            let found = false;
-            while (!found) {
-                // Generate 12-word mnemonic
-                const mnemonic = bip39.generateMnemonic(128, null, MNEMONIC_WORDLIST);
-                outputDiv.textContent = `Generated Mnemonic:\n${mnemonic}\nChecking balance...`;
-
-                // Convert mnemonic to seed
-                const seed = await bip39.mnemonicToSeed(mnemonic);
-
-                // Derive BTC address using BIP44
-                const root = bitcoin.bip32.fromSeed(seed);
-                const child = root.derivePath("m/44'/0'/0'/0/0"); // Standard BTC path
-                const { address } = bitcoin.payments.p2pkh({ pubkey: child.publicKey });
-
-                // Check balance using Blockchain.info API
-                const balance = await checkBalance(address);
-                if (balance > 0) {
-                    found = true;
-                    outputDiv.textContent = `Success!\nAddress: ${address}\nBalance: ${balance} satoshis\n\nMnemonic:\n${mnemonic}`;
-                }
-            }
-        });
-
+        // Check Balance Function
         async function checkBalance(address) {
             try {
                 const response = await fetch(`${API_URL}${address}`);
                 if (!response.ok) {
                     throw new Error("Failed to connect to Blockchain.info API.");
                 }
-
                 const data = await response.json();
                 return data[address]?.final_balance || 0; // Return balance in satoshis
             } catch (error) {
@@ -74,6 +53,53 @@
                 return 0;
             }
         }
+
+        // Event Listener: Start Button
+        startButton.addEventListener("click", async () => {
+            const address = addressInput.value.trim();
+            if (!address) {
+                outputDiv.textContent = "Please enter a valid BTC address.";
+                return;
+            }
+
+            outputDiv.textContent = `Checking balance for address: ${address}...`;
+
+            const balance = await checkBalance(address);
+            if (balance > 0) {
+                outputDiv.textContent = `Address: ${address}\nBalance: ${balance} satoshis\n`;
+                generateMnemonicButton.disabled = false; // Enable the mnemonic generation button
+            } else {
+                outputDiv.textContent = `Address: ${address}\nBalance: 0 satoshis (or invalid address).\n`;
+                generateMnemonicButton.disabled = true; // Disable the mnemonic generation button
+            }
+        });
+
+        // Event Listener: Generate Mnemonic Button
+        generateMnemonicButton.addEventListener("click", async () => {
+            outputDiv.textContent = "Generating and verifying mnemonic...";
+
+            let found = false;
+            while (!found) {
+                // Generate 12-word mnemonic
+                const mnemonic = bip39.generateMnemonic(128);
+                outputDiv.textContent = `Generated Mnemonic:\n${mnemonic}\nVerifying address...`;
+
+                // Convert mnemonic to seed
+                const seed = await bip39.mnemonicToSeed(mnemonic);
+
+                // Derive BTC address using BIP44
+                const root = bitcoin.bip32.fromSeed(seed);
+                const child = root.derivePath("m/44'/0'/0'/0/0");
+                const { address } = bitcoin.payments.p2pkh({ pubkey: child.publicKey });
+
+                // Compare derived address with the input address
+                const inputAddress = addressInput.value.trim();
+                if (address === inputAddress) {
+                    found = true;
+                    outputDiv.textContent = `Success!\nMnemonic:\n${mnemonic}\nAddress: ${address}\n\nMnemonic matches input address!`;
+                }
+            }
+        });
     </script>
 </body>
 </html>
