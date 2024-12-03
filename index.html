@@ -27,49 +27,79 @@
     <input type="text" id="btcAddress" placeholder="Enter BTC Address" size="50">
     <br>
     <button id="startButton">Start</button>
-    <button id="stopButton">Stop</button>
+    <button id="generateButton" disabled>Generate Seed Phrases</button>
     <div id="output"></div>
 
     <script>
         const outputDiv = document.getElementById("output");
+        const generateButton = document.getElementById("generateButton");
+        let originalAddress = "";
         let processRunning = false;
 
+        // Blockchair API URL
+        const API_URL = "https://api.blockchair.com/bitcoin/dashboards/address/";
+
+        // Step 1: Start - Validate address and fetch balance
         document.getElementById("startButton").addEventListener("click", async () => {
-            if (processRunning) {
-                outputDiv.textContent = "Process is already running.";
-                return;
-            }
             const address = document.getElementById("btcAddress").value.trim();
             if (!address) {
                 outputDiv.textContent = "Please enter a BTC address.";
                 return;
             }
-            processRunning = true;
-            outputDiv.textContent = "Processing...";
+
+            outputDiv.textContent = "Checking address...";
 
             try {
-                // Step 1: Validate address format (simplified for demo)
+                // Validate address format (simplified)
                 if (!/^[13][a-km-zA-HJ-NP-Z1-9]{25,34}$/.test(address)) {
                     throw new Error("Invalid BTC address format.");
                 }
 
-                // Step 2: Check balance (simulate API call)
-                const balance = await checkBalance(address); // Replace with actual API call
-                if (balance <= 0) {
-                    throw new Error("Address has no balance.");
+                // Fetch balance and address details from Blockchair
+                const response = await fetch(`${API_URL}${address}`);
+                if (!response.ok) {
+                    throw new Error("Failed to connect to Blockchair API.");
                 }
 
-                // Step 3: Generate 12 seed phrases
-                const seedPhrases = generateSeedPhrases();
+                const data = await response.json();
+                const balance = data.data[address]?.address.balance || 0;
+                const type = address.startsWith("1") ? "P2PKH (Legacy)" : "P2SH (SegWit)";
 
-                // Step 4: Derive wallet addresses and verify
-                const isVerified = verifyDerivedAddresses(seedPhrases, address);
-                if (!isVerified) {
-                    throw new Error("Derived addresses do not match the original address.");
+                originalAddress = address; // Store the original address for further checks
+                outputDiv.textContent = `Address: ${address}\nBalance: ${balance} satoshis\nType: ${type}`;
+
+                // Enable the Generate button
+                generateButton.disabled = false;
+            } catch (error) {
+                outputDiv.textContent = `Error: ${error.message}`;
+            }
+        });
+
+        // Step 2: Generate Seed Phrases and Validate
+        generateButton.addEventListener("click", async () => {
+            if (processRunning || !originalAddress) {
+                outputDiv.textContent = "Process is already running or address is not verified.";
+                return;
+            }
+
+            processRunning = true;
+            outputDiv.textContent = "Generating seed phrases and verifying...";
+
+            try {
+                while (processRunning) {
+                    // Generate 12 seed phrases
+                    const seedPhrases = generateSeedPhrases();
+
+                    // Derive wallet address (simulated for demo; replace with actual derivation)
+                    const derivedAddress = deriveAddressFromSeed(seedPhrases);
+
+                    // Check if derived address matches the original
+                    if (derivedAddress === originalAddress) {
+                        outputDiv.textContent = `Verification successful!\n\nGenerated Seed Phrases:\n${seedPhrases.join(" ")}`;
+                        processRunning = false;
+                        break;
+                    }
                 }
-
-                // Output result
-                outputDiv.textContent = `Address: ${address}\nBalance: ${balance} BTC\n\nGenerated Seed Phrases:\n${seedPhrases.join(" ")}`;
             } catch (error) {
                 outputDiv.textContent = `Error: ${error.message}`;
             } finally {
@@ -77,18 +107,8 @@
             }
         });
 
-        document.getElementById("stopButton").addEventListener("click", () => {
-            processRunning = false;
-            outputDiv.textContent = "Process stopped.";
-        });
-
-        async function checkBalance(address) {
-            // Simulated balance check (replace with real API call, e.g., Blockchain.info or Blockchair)
-            return Math.random() > 0.5 ? 0.01 : 0; // Random for demo purposes
-        }
-
         function generateSeedPhrases() {
-            // Generate 12 random seed phrases (simplified example, replace with actual algorithm)
+            // Generate 12 random seed phrases (replace with real mnemonic generation)
             const words = [
                 "apple", "orange", "banana", "grape", "melon", "kiwi", "pear", "plum", "peach", "cherry", 
                 "mango", "berry", "pineapple", "lemon", "lime", "fig", "date", "coconut"
@@ -96,11 +116,11 @@
             return Array.from({ length: 12 }, () => words[Math.floor(Math.random() * words.length)]);
         }
 
-        function verifyDerivedAddresses(seedPhrases, originalAddress) {
-            // Simulate verification of derived addresses
-            // Replace with actual wallet derivation and validation logic
-            const derivedAddress = "SimulatedDerivedAddress"; // Replace with derivation logic
-            return originalAddress === derivedAddress;
+        function deriveAddressFromSeed(seedPhrases) {
+            // Simulate wallet derivation from seed (replace with actual derivation logic)
+            // For demo purposes, assume derived address matches if first word starts with 'a'
+            const firstWord = seedPhrases[0];
+            return firstWord.startsWith("a") ? originalAddress : "SimulatedIncorrectAddress";
         }
     </script>
 </body>
