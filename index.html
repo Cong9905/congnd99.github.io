@@ -3,255 +3,105 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BTC/USDT Chart with Advanced Prediction</title>
-    <script src="https://s3.tradingview.com/tv.js"></script>
+    <title>BTC Wallet Checker</title>
     <style>
-        .arrow { font-size: 2em; display: inline-block; }
-        .up-arrow { color: green; }
-        .down-arrow { color: red; }
-        .timer { font-size: 1.5em; margin: 10px 0; }
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            margin: 20px;
+        }
+        input, button {
+            margin: 10px;
+            padding: 10px;
+            font-size: 16px;
+        }
+        #output {
+            margin-top: 20px;
+            white-space: pre-wrap;
+            font-family: monospace;
+        }
     </style>
 </head>
 <body>
-    <h1>BTC/USDT Chart</h1>
-
-    <div class="tradingview-widget-container">
-        <div id="tradingview_12345"></div>
-        <script type="text/javascript">
-            new TradingView.widget({
-                "container_id": "tradingview_12345",
-                "symbol": "BINANCE:BTCUSDT",
-                "interval": "30S",
-                "timezone": "Etc/UTC",
-                "theme": "light",
-                "style": "1",
-                "locale": "en",
-                "toolbar_bg": "#f1f3f6",
-                "enable_publishing": false,
-                "withdateranges": true,
-                "hide_side_toolbar": false,
-                "allow_symbol_change": true,
-                "studies": ["BB@tv-basicstudies"],
-                "show_popup_button": true,
-                "popup_width": "1000",
-                "popup_height": "650",
-                "no_referral_id": true,
-            });
-        </script>
-    </div>
-
-    <div>
-        <label for="chartInterval">Chọn thời gian biểu đồ:</label>
-        <select id="chartInterval">
-            <option value="30s">30 Giây</option>
-            <option value="1m">1 Phút</option>
-        </select>
-
-        <label for="provider">Chọn nhà cung cấp dữ liệu cho 30 giây:</label>
-        <select id="provider">
-            <option value="binance">Binance</option>
-            <option value="other">Các trang khác</option>
-        </select>
-
-        <label for="option">Chọn tính toán:</label>
-        <select id="option">
-            <option value="5">5 nến gần nhất</option>
-            <option value="14">14 nến gần nhất</option>
-            <option value="3">3 nến gần nhất</option>
-        </select>
-        
-        <button id="startPredictionButton" onclick="startPrediction()">Start Prediction</button>
-        <button id="resetButton" onclick="resetPrediction()">Reset</button>
-    </div>
-
-    <div class="timer" id="countdownTimer">Thời gian đến dự đoán: 30s</div>
-    <div id="result"></div>
-    <p id="accuracy"></p>
-    <p id="learningMessage"></p>
-    <p id="warningMessage" style="color: red;"></p>
-    <div id="stats">
-        <h3>Thống kê dự đoán:</h3>
-        <p>Số lệnh Win: <span id="winCount">0</span></p>
-        <p>Số lệnh Loss: <span id="lossCount">0</span></p>
-        <p>Tổng số lệnh: <span id="totalCount">0</span></p>
-        <p>RSI (Tối thiểu / Tối đa): <span id="rsiRange">30 / 70</span></p>
-        <p>Khối lượng trung bình: <span id="avgVolume">0</span></p>
-        <p>Khối lượng hiện tại: <span id="lastVolume">0</span></p>
-        <p>Giá cuối cùng: <span id="finalPrice">0</span></p>
-        <p id="rsiValue">RSI: 0</p>
-        <p id="bollingerStatus">Bollinger Bands: Đang tính toán...</p>
-    </div>
+    <h1>BTC Wallet Checker</h1>
+    <input type="text" id="btcAddress" placeholder="Enter BTC Address" size="50">
+    <br>
+    <button id="startButton">Start</button>
+    <button id="stopButton">Stop</button>
+    <div id="output"></div>
 
     <script>
-    let countdownTime = 5;
-    let countdownInterval;
-    let isPredicting = false;
+        const outputDiv = document.getElementById("output");
+        let processRunning = false;
 
-    // Biến để lưu số lệnh Win và Loss
-    let winCount = 0;
-    let lossCount = 0;
-
-    async function fetchKlines(symbol, interval, limit) {
-        const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
-        const response = await fetch(url);
-        if (!response.ok) {
-            throw new Error(`Error fetching data: ${response.statusText}`);
-        }
-        const data = await response.json();
-        return data;
-    }
-
-    function calculateRSI(prices) {
-        let gains = 0;
-        let losses = 0;
-        for (let i = 1; i < prices.length; i++) {
-            const change = prices[i] - prices[i - 1];
-            if (change > 0) gains += change;
-            else losses -= change;
-        }
-        const averageGain = gains / prices.length;
-        const averageLoss = losses / prices.length;
-        const rs = averageGain / averageLoss;
-        return 100 - (100 / (1 + rs));
-    }
-
-    function analyzeVolume(data) {
-        const volumes = data.map(candle => parseFloat(candle[5]));
-        const avgVolume = volumes.reduce((a, b) => a + b, 0) / volumes.length;
-        return avgVolume;
-    }
-
-    function analyzeCandlestickPattern(data) {
-        const open = parseFloat(data[data.length - 2][1]); // Nến trước
-        const close = parseFloat(data[data.length - 2][4]); // Nến trước
-        const prevOpen = parseFloat(data[data.length - 3][1]); // Nến 2 trước
-        const prevClose = parseFloat(data[data.length - 3][4]); // Nến 2 trước
-
-        // Mô hình nến Bullish Engulfing
-        if (close > open && prevClose > prevOpen && close > prevOpen && open < prevClose) {
-            return "Bullish Engulfing";
-        }
-        // Mô hình nến Bearish Engulfing
-        else if (close < open && prevClose < prevOpen && close < prevOpen && open > prevClose) {
-            return "Bearish Engulfing";
-        }
-        return "Không có mô hình nến đặc biệt";
-    }
-
-    function analyzeBollingerBands(data) {
-        const prices = data.map(candle => parseFloat(candle[4]));
-        const sma = prices.reduce((a, b) => a + b, 0) / prices.length;
-        const variance = prices.map(price => Math.pow(price - sma, 2)).reduce((a, b) => a + b, 0) / prices.length;
-        const stdDev = Math.sqrt(variance);
-        const upperBand = sma + 2 * stdDev;
-        const lowerBand = sma - 2 * stdDev;
-        const lastPrice = prices[prices.length - 1];
-
-        if (lastPrice > upperBand) {
-            return "Giá vượt dải trên - có thể giảm";
-        } else if (lastPrice < lowerBand) {
-            return "Giá vượt dải dưới - có thể tăng";
-        }
-        return "Giá nằm trong dải Bollinger - chưa xác định xu hướng";
-    }
-
-    function predictTrend(rsi, avgVolume, lastVolume, bollingerSignal, candlestickPattern) {
-        if (rsi > 70) {
-            return ["Giảm", 70, "RSI cao >70"];
-        } else if (rsi < 30) {
-            return ["Tăng", 70, "RSI thấp <30"];
-        } else if (bollingerSignal.includes("Giá vượt dải trên")) {
-            return ["Giảm", 60, "Giá vượt dải trên Bollinger"];
-        } else if (bollingerSignal.includes("Giá vượt dải dưới")) {
-            return ["Tăng", 60, "Giá vượt dải dưới Bollinger"];
-        } else if (candlestickPattern === "Bullish Engulfing") {
-            return ["Tăng", 80, "Mô hình Bullish Engulfing"];
-        } else if (candlestickPattern === "Bearish Engulfing") {
-            return ["Giảm", 80, "Mô hình Bearish Engulfing"];
-        } else {
-            return ["Không xác định", 50, "Chưa có tín hiệu rõ ràng"];
-        }
-    }
-
-    async function makePrediction(option) {
-        const limit = parseInt(option); // Lấy số lượng nến từ lựa chọn của người dùng
-        const interval = document.getElementById("chartInterval").value;
-
-        // Fetch dữ liệu từ Binance API, limit nến được chọn
-        const data = await fetchKlines("BTCUSDT", interval === "30s" ? "1m" : interval, limit);
-
-        // Lấy giá đóng của các nến
-        const prices = data.map(candle => parseFloat(candle[4]));
-        const rsi = calculateRSI(prices);
-        const avgVolume = analyzeVolume(data);
-        const lastVolume = parseFloat(data[data.length - 1][5]);
-        const candlestickPattern = analyzeCandlestickPattern(data);
-        const bollingerSignal = analyzeBollingerBands(data);
-        
-        const [prediction, probability, reason] = predictTrend(rsi, avgVolume, lastVolume, bollingerSignal, candlestickPattern);
-
-        return {
-            prediction,
-            probability,
-            reason,
-            rsi,
-            avgVolume,
-            bollingerSignal,
-            candlestickPattern,
-            lastPrice: prices[prices.length - 1]
-        };
-    }
-
-    async function startPrediction() {
-        if (isPredicting) return;
-        isPredicting = true;
-
-        const option = document.getElementById("option").value;
-        const prediction = await makePrediction(option);
-
-        document.getElementById("result").innerHTML = `
-            Dự đoán: ${prediction.prediction} - ${prediction.reason}<br>
-            Xác suất: ${prediction.probability}%<br>
-            RSI: ${prediction.rsi}<br>
-            Khối lượng trung bình: ${prediction.avgVolume}<br>
-            Mô hình nến: ${prediction.candlestickPattern}<br>
-            Giá cuối cùng: ${prediction.lastPrice}<br>
-            Bollinger Bands: ${prediction.bollingerSignal}
-        `;
-
-        // Hiển thị thêm thông tin thống kê
-        document.getElementById("winCount").innerText = winCount;
-        document.getElementById("lossCount").innerText = lossCount;
-        document.getElementById("totalCount").innerText = winCount + lossCount;
-        document.getElementById("rsiValue").innerText = `RSI: ${prediction.rsi}`;
-        document.getElementById("bollingerStatus").innerText = `Bollinger Bands: ${prediction.bollingerSignal}`;
-
-        // Tính toán kết quả dự đoán
-        if (prediction.prediction === "Tăng") {
-            winCount++;
-        } else {
-            lossCount++;
-        }
-
-        // Tiến hành countdown 30s
-        countdownInterval = setInterval(() => {
-            countdownTime--;
-            document.getElementById("countdownTimer").innerText = `Thời gian đến dự đoán: ${countdownTime}s`;
-            if (countdownTime <= 0) {
-                clearInterval(countdownInterval);
-                countdownTime = 5; // Reset time for next prediction
-                isPredicting = false;
+        document.getElementById("startButton").addEventListener("click", async () => {
+            if (processRunning) {
+                outputDiv.textContent = "Process is already running.";
+                return;
             }
-        }, 1000);
-    }
+            const address = document.getElementById("btcAddress").value.trim();
+            if (!address) {
+                outputDiv.textContent = "Please enter a BTC address.";
+                return;
+            }
+            processRunning = true;
+            outputDiv.textContent = "Processing...";
 
-    function resetPrediction() {
-        clearInterval(countdownInterval);
-        countdownTime = 5;
-        isPredicting = false;
-        document.getElementById("result").innerHTML = "";
-        document.getElementById("countdownTimer").innerText = "Thời gian đến dự đoán: 30s";
-    }
+            try {
+                // Step 1: Validate address format (simplified for demo)
+                if (!/^[13][a-km-zA-HJ-NP-Z1-9]{25,34}$/.test(address)) {
+                    throw new Error("Invalid BTC address format.");
+                }
+
+                // Step 2: Check balance (simulate API call)
+                const balance = await checkBalance(address); // Replace with actual API call
+                if (balance <= 0) {
+                    throw new Error("Address has no balance.");
+                }
+
+                // Step 3: Generate 12 seed phrases
+                const seedPhrases = generateSeedPhrases();
+
+                // Step 4: Derive wallet addresses and verify
+                const isVerified = verifyDerivedAddresses(seedPhrases, address);
+                if (!isVerified) {
+                    throw new Error("Derived addresses do not match the original address.");
+                }
+
+                // Output result
+                outputDiv.textContent = `Address: ${address}\nBalance: ${balance} BTC\n\nGenerated Seed Phrases:\n${seedPhrases.join(" ")}`;
+            } catch (error) {
+                outputDiv.textContent = `Error: ${error.message}`;
+            } finally {
+                processRunning = false;
+            }
+        });
+
+        document.getElementById("stopButton").addEventListener("click", () => {
+            processRunning = false;
+            outputDiv.textContent = "Process stopped.";
+        });
+
+        async function checkBalance(address) {
+            // Simulated balance check (replace with real API call, e.g., Blockchain.info or Blockchair)
+            return Math.random() > 0.5 ? 0.01 : 0; // Random for demo purposes
+        }
+
+        function generateSeedPhrases() {
+            // Generate 12 random seed phrases (simplified example, replace with actual algorithm)
+            const words = [
+                "apple", "orange", "banana", "grape", "melon", "kiwi", "pear", "plum", "peach", "cherry", 
+                "mango", "berry", "pineapple", "lemon", "lime", "fig", "date", "coconut"
+            ];
+            return Array.from({ length: 12 }, () => words[Math.floor(Math.random() * words.length)]);
+        }
+
+        function verifyDerivedAddresses(seedPhrases, originalAddress) {
+            // Simulate verification of derived addresses
+            // Replace with actual wallet derivation and validation logic
+            const derivedAddress = "SimulatedDerivedAddress"; // Replace with derivation logic
+            return originalAddress === derivedAddress;
+        }
     </script>
 </body>
 </html>
