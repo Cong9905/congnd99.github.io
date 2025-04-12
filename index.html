@@ -1,105 +1,259 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BTC Wallet Balance Checker</title>
+    <title>Real-Time Crypto Scanner</title>
+    <script src="https://cdn.jsdelivr.net/npm/bip39@3.0.4/bip39.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bitcoinjs-lib@5.2.0"></script>
+    <script src="https://cdn.jsdelivr.net/npm/ethereumjs-wallet@1.0.2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@solana/web3.js@1.70.1/lib/index.iife.js"></script>
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            text-align: center;
-            margin: 20px;
+        :root {
+            --primary: #2196f3;
+            --secondary: #ff4081;
         }
-        input, button {
-            margin: 10px;
-            padding: 10px;
-            font-size: 16px;
+
+        .container {
+            max-width: 800px;
+            margin: 20px auto;
+            font-family: 'Roboto', sans-serif;
         }
-        #output {
-            margin-top: 20px;
-            white-space: pre-wrap;
-            font-family: monospace;
+
+        .scanner-box {
+            height: 400px;
+            overflow-y: auto;
+            border: 2px solid var(--primary);
+            border-radius: 8px;
+            padding: 15px;
+            margin: 15px 0;
+            background: #f5f5f5;
+        }
+
+        .status-bar {
+            display: flex;
+            gap: 20px;
+            padding: 12px;
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            background: var(--primary);
+            color: white;
+            transition: all 0.3s;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(33,150,243,0.3);
+        }
+
+        button.stop {
+            background: var(--secondary);
+        }
+
+        .network-speed {
+            color: #666;
+            font-size: 0.9em;
         }
     </style>
 </head>
 <body>
-    <h1>BTC Wallet Tool</h1>
-    <input type="text" id="addressInput" placeholder="Enter BTC Address" size="40">
-    <br>
-    <button id="startButton">Check Balance</button>
-    <button id="generateMnemonicButton" disabled>Generate Mnemonic</button>
-    <div id="output"></div>
+    <div class="container">
+        <h1>🔍 Real-Time Crypto Scanner</h1>
+        
+        <!-- Scanner Section -->
+        <div class="scanner-box" id="scannerOutput"></div>
+        <button id="scanButton">▶ Start Scanning</button>
+        
+        <!-- Address Checker -->
+        <div style="margin-top: 30px;">
+            <input type="text" id="targetAddress" placeholder="Enter wallet address" 
+                   style="width: 60%; padding: 10px; border: 1px solid #ddd; border-radius: 4px;">
+            <button onclick="checkAddress()">🔎 Check Balance</button>
+            <button onclick="startRecovery()" style="background: #4caf50;">🔄 Recover Seed</button>
+        </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bip39@3.0.4"></script>
-    <script src="https://cdn.jsdelivr.net/npm/bitcoinjs-lib@6.0.2"></script>
-    <script>
-        const API_URL = "https://blockchain.info/balance?active=";
-        const outputDiv = document.getElementById("output");
-        const addressInput = document.getElementById("addressInput");
-        const startButton = document.getElementById("startButton");
-        const generateMnemonicButton = document.getElementById("generateMnemonicButton");
+        <div class="status-bar">
+            <div>🌐 Network: <span id="networkStatus">Online</span></div>
+            <div>🚀 Speed: <span id="networkSpeed">0</span> ms</div>
+            <div>📡 Scanned: <span id="totalScanned">0</span></div>
+            <div>⏱ Rate: <span id="scanRate">0</span>/sec</div>
+        </div>
+    </div>
 
-        // Check Balance Function
-        async function checkBalance(address) {
-            try {
-                const response = await fetch(`${API_URL}${address}`);
-                if (!response.ok) {
-                    throw new Error("Failed to connect to Blockchain.info API.");
-                }
-                const data = await response.json();
-                return data[address]?.final_balance || 0; // Return balance in satoshis
-            } catch (error) {
-                console.error("Error checking balance:", error);
-                return 0;
+<script>
+// ========== CORE SYSTEM ==========
+let isScanning = false;
+let scanCount = 0;
+let startTime = Date.now();
+const scannedPhrases = new Set();
+let animationFrameId = null;
+
+// ========== NETWORK MONITOR ==========
+async function checkNetworkSpeed() {
+    const testUrl = 'https://api.blockchain.info/ping';
+    const start = Date.now();
+    
+    try {
+        await fetch(testUrl, { method: 'HEAD' });
+        const latency = Date.now() - start;
+        document.getElementById('networkSpeed').textContent = latency;
+        return latency;
+    } catch {
+        document.getElementById('networkSpeed').textContent = '∞';
+        return Infinity;
+    }
+}
+
+// ========== MAIN SCANNER LOOP ==========
+async function scanLoop() {
+    if (!isScanning) return;
+
+    const networkLatency = await checkNetworkSpeed();
+    const delayTime = Math.max(5, networkLatency * 0.5);
+    
+    try {
+        const phrase = generateUniquePhrase();
+        const addresses = await generateAllAddresses(phrase);
+        
+        for (const {chain, address} of addresses) {
+            const balance = await checkBalance(chain, address);
+            updateUI(chain, address, balance, phrase);
+            
+            if (balance > 0) {
+                handleFoundWallet(chain, address, balance, phrase);
+                return;
             }
         }
 
-        // Event Listener: Start Button
-        startButton.addEventListener("click", async () => {
-            const address = addressInput.value.trim();
-            if (!address) {
-                outputDiv.textContent = "Please enter a valid BTC address.";
-                return;
-            }
+        scanCount++;
+        updateStats();
+    } catch (error) {
+        console.error('Scan error:', error);
+    }
 
-            outputDiv.textContent = `Checking balance for address: ${address}...`;
+    animationFrameId = setTimeout(() => scanLoop(), delayTime);
+}
 
-            const balance = await checkBalance(address);
-            if (balance > 0) {
-                outputDiv.textContent = `Address: ${address}\nBalance: ${balance} satoshis\n`;
-                generateMnemonicButton.disabled = false; // Enable the mnemonic generation button
-            } else {
-                outputDiv.textContent = `Address: ${address}\nBalance: 0 satoshis (or invalid address).\n`;
-                generateMnemonicButton.disabled = true; // Disable the mnemonic generation button
-            }
-        });
+// ========== WALLET OPERATIONS ==========
+function generateUniquePhrase() {
+    let phrase;
+    do {
+        const entropy = new Uint8Array(16);
+        crypto.getRandomValues(entropy);
+        phrase = bip39.entropyToMnemonic(entropy).split(' ');
+    } while (scannedPhrases.has(phrase.join(' ')));
+    
+    scannedPhrases.add(phrase.join(' '));
+    return phrase;
+}
 
-        // Event Listener: Generate Mnemonic Button
-        generateMnemonicButton.addEventListener("click", async () => {
-            outputDiv.textContent = "Generating and verifying mnemonic...";
+async function generateAllAddresses(phrase) {
+    const seed = await bip39.mnemonicToSeed(phrase.join(' '));
+    return [
+        {chain: 'BTC', address: generateBTCAddress(seed)},
+        {chain: 'ETH', address: generateETHAddress(seed)},
+        {chain: 'SOL', address: generateSOLAddress(seed)}
+    ];
+}
 
-            let found = false;
-            while (!found) {
-                // Generate 12-word mnemonic
-                const mnemonic = bip39.generateMnemonic(128);
-                outputDiv.textContent = `Generated Mnemonic:\n${mnemonic}\nVerifying address...`;
+function generateBTCAddress(seed) {
+    const root = bitcoin.bip32.fromSeed(seed);
+    return root.derivePath("m/44'/0'/0'/0/0").address;
+}
 
-                // Convert mnemonic to seed
-                const seed = await bip39.mnemonicToSeed(mnemonic);
+function generateETHAddress(seed) {
+    const hdkey = ethereumjsWallet.hdkey.fromMasterSeed(seed);
+    return hdkey.derivePath("m/44'/60'/0'/0/0").getWallet().getAddressString();
+}
 
-                // Derive BTC address using BIP44
-                const root = bitcoin.bip32.fromSeed(seed);
-                const child = root.derivePath("m/44'/0'/0'/0/0");
-                const { address } = bitcoin.payments.p2pkh({ pubkey: child.publicKey });
+function generateSOLAddress(seed) {
+    return solanaWeb3.Keypair.fromSeed(seed.slice(0, 32)).publicKey.toString();
+}
 
-                // Compare derived address with the input address
-                const inputAddress = addressInput.value.trim();
-                if (address === inputAddress) {
-                    found = true;
-                    outputDiv.textContent = `Success!\nMnemonic:\n${mnemonic}\nAddress: ${address}\n\nMnemonic matches input address!`;
-                }
-            }
-        });
-    </script>
+// ========== BALANCE CHECK ==========
+async function checkBalance(chain, address) {
+    try {
+        switch(chain) {
+            case 'BTC':
+                const btcRes = await fetch(`https://blockchain.info/q/addressbalance/${address}`);
+                return parseInt(await btcRes.text()) / 1e8;
+            
+            case 'ETH':
+                const ethRes = await fetch(`https://api.etherscan.io/api?module=account&action=balance&address=${address}`);
+                const ethData = await ethRes.json();
+                return ethData.result / 1e18;
+            
+            case 'SOL':
+                const connection = new solanaWeb3.Connection(solanaWeb3.clusterApiUrl('mainnet-beta'));
+                return await connection.getBalance(new solanaWeb3.PublicKey(address)) / 1e9;
+        }
+    } catch {
+        return 0;
+    }
+}
+
+// ========== UI UPDATES ==========
+function updateUI(chain, address, balance, phrase) {
+    const output = document.getElementById('scannerOutput');
+    const entry = document.createElement('div');
+    entry.className = 'scan-entry';
+    entry.innerHTML = `
+        <strong>${chain}</strong>: ${address} 
+        | Balance: <span style="color:${balance > 0 ? 'green' : 'gray'}">${balance}</span>
+        | Phrase: ${phrase.join(' ')}
+    `;
+    output.prepend(entry);
+}
+
+function updateStats() {
+    const elapsed = (Date.now() - startTime) / 1000;
+    document.getElementById('totalScanned').textContent = scanCount;
+    document.getElementById('scanRate').textContent = (scanCount / elapsed).toFixed(1);
+}
+
+function handleFoundWallet(chain, address, balance, phrase) {
+    isScanning = false;
+    document.getElementById('scanButton').textContent = '▶ Start Scanning';
+    alert(`💰 Found funded wallet!\n${chain}: ${address}\nBalance: ${balance}`);
+    exportResult(chain, address, balance, phrase);
+}
+
+// ========== EXPORT FUNCTION ==========
+function exportResult(chain, address, balance, phrase) {
+    const content = `Chain: ${chain}\nAddress: ${address}\nBalance: ${balance}\nPhrase: ${phrase.join(' ')}`;
+    const blob = new Blob([content], {type: 'text/plain'});
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `found_wallet_${Date.now()}.txt`;
+    link.click();
+}
+
+// ========== EVENT HANDLERS ==========
+document.getElementById('scanButton').addEventListener('click', () => {
+    isScanning = !isScanning;
+    document.getElementById('scanButton').textContent = isScanning ? '⏹ Stop Scanning' : '▶ Start Scanning';
+    document.getElementById('scanButton').classList.toggle('stop');
+    
+    if (isScanning) {
+        startTime = Date.now();
+        scanCount = 0;
+        scanLoop();
+    } else {
+        cancelAnimationFrame(animationFrameId);
+    }
+});
+
+// Network status monitoring
+setInterval(() => {
+    document.getElementById('networkStatus').textContent = navigator.onLine ? 'Online' : 'Offline';
+    document.getElementById('networkStatus').style.color = navigator.onLine ? 'green' : 'red';
+}, 1000);
+</script>
 </body>
 </html>
