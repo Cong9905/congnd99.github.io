@@ -1,221 +1,298 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Fixed Crypto Scanner</title>
+    <title>Ultimate Crypto Scanner</title>
     <script src="https://cdn.jsdelivr.net/npm/bip39@3.0.4/bip39.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bitcoinjs-lib@5.2.0"></script>
     <script src="https://cdn.jsdelivr.net/npm/ethereumjs-wallet@1.0.2"></script>
     <script src="https://cdn.jsdelivr.net/npm/@solana/web3.js@1.70.1/lib/index.iife.js"></script>
     <style>
-        /* CSS đơn giản và hiệu quả */
-        .container {
-            max-width: 800px;
-            margin: 20px auto;
+        body {
+            font-family: Consolas, monospace;
+            max-width: 1200px;
+            margin: 0 auto;
             padding: 20px;
-            font-family: Arial, sans-serif;
+            background: #1a1a1a;
+            color: #00ff00;
         }
-        
+
+        .scanner-panel {
+            border: 2px solid #00ff00;
+            padding: 20px;
+            margin: 20px 0;
+            background: #000;
+        }
+
         #scannerOutput {
             height: 400px;
-            border: 1px solid #ccc;
-            padding: 10px;
             overflow-y: auto;
+            border: 1px solid #333;
+            padding: 10px;
             margin: 10px 0;
         }
-        
+
+        .status-bar {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 20px;
+            padding: 10px;
+            background: #000;
+            border: 1px solid #00ff00;
+        }
+
         button {
+            background: #003300;
+            color: #00ff00;
+            border: 1px solid #00ff00;
             padding: 10px 20px;
-            background: #2196F3;
-            color: white;
-            border: none;
-            border-radius: 4px;
             cursor: pointer;
             margin: 5px;
+            transition: all 0.3s;
         }
-        
-        .status {
-            color: #666;
-            margin: 10px 0;
+
+        button:hover {
+            background: #005500;
+        }
+
+        input {
+            background: #000;
+            color: #00ff00;
+            border: 1px solid #00ff00;
+            padding: 8px;
+            margin: 5px;
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h2>Working Crypto Scanner</h2>
+    <!-- Program 1: Auto Scanner -->
+    <div class="scanner-panel">
+        <h2>🛠️ Auto Scanner</h2>
         <div id="scannerOutput"></div>
-        <button id="scanButton">Start Scan</button>
-        <div class="status">
-            Scanned: <span id="scanCount">0</span> | 
-            Speed: <span id="scanSpeed">0</span>/sec | 
-            Network: <span id="networkStatus">🟢 Online</span>
+        <button id="scanToggle">▶ START SCAN</button>
+        <div class="status-bar">
+            <div>🌐 Network: <span id="networkStatus">ONLINE</span></div>
+            <div>📡 Speed: <span id="scanSpeed">0</span>/s</div>
+            <div>🔢 Total: <span id="totalScanned">0</span></div>
+            <div>⏱️ Runtime: <span id="runtime">00:00:00</span></div>
         </div>
     </div>
 
+    <!-- Program 2: Address Tools -->
+    <div class="scanner-panel">
+        <h2>🔧 Address Tools</h2>
+        <input type="text" id="targetAddress" placeholder="Enter wallet address" size="50">
+        <button onclick="checkAddress()">🔍 Check Balance</button>
+        <button onclick="startRecovery()">🔄 Recover Seed</button>
+        <div id="recoveryOutput"></div>
+    </div>
+
 <script>
-// ========== CẤU HÌNH HỆ THỐNG ==========
+// ========== CORE SYSTEM ==========
 let isScanning = false;
-let scanCounter = 0;
-const API_ENDPOINTS = {
-    BTC: addr => `https://blockchain.info/q/addressbalance/${addr}`,
-    ETH: addr => `https://api.etherscan.io/api?module=account&action=balance&address=${addr}`,
-    SOL: addr => `https://api.mainnet-beta.solana.com/`
-};
+let scanCount = 0;
+let startTime = 0;
+const workerPool = [];
+const MAX_WORKERS = 4;
+const SCAN_RATE = 200; // Wallets/second
 
-// ========== HÀM QUÉT CHÍNH ==========
-async function startScan() {
-    while(isScanning) {
-        try {
-            // 1. Tạo cụm từ mới
-            const phrase = generateMnemonic();
-            
-            // 2. Tạo các địa chỉ ví
-            const addresses = await generateAddresses(phrase);
-            
-            // 3. Kiểm tra số dư
-            const results = await checkBalances(addresses);
-            
-            // 4. Xử lý kết quả
-            processResults(results, phrase);
-            
-            // 5. Cập nhật UI
-            updateUI();
-            
-            // 6. Điều chỉnh tốc độ
-            await new Promise(r => setTimeout(r, 5));
-        } catch(error) {
-            console.error('Lỗi quét:', error);
-        }
+// ========== WORKER MANAGEMENT ==========
+function initWorkers() {
+    for (let i = 0; i < MAX_WORKERS; i++) {
+        const worker = new Worker(URL.createObjectURL(new Blob([`
+            let count = 0;
+            self.onmessage = async ({ data }) => {
+                if (data.type === 'SCAN') {
+                    const phrase = generatePhrase();
+                    const results = await checkAllChains(phrase);
+                    self.postMessage({ type: 'RESULT', data: results });
+                }
+            };
+
+            function generatePhrase() {
+                const indices = new Uint16Array(12);
+                crypto.getRandomValues(indices);
+                return Array.from(indices).map(i => bip39.wordlists.english[i % 2048]);
+            }
+
+            async function checkAllChains(phrase) {
+                const seed = await bip39.mnemonicToSeed(phrase.join(' '));
+                const addresses = {
+                    BTC: deriveBTCAddress(seed),
+                    ETH: deriveETHAddress(seed),
+                    SOL: deriveSOLAddress(seed)
+                };
+                
+                const balances = await Promise.all([
+                    fetchBalance('BTC', addresses.BTC),
+                    fetchBalance('ETH', addresses.ETH),
+                    fetchBalance('SOL', addresses.SOL)
+                ]);
+                
+                return { phrase, addresses, balances };
+            }
+
+            function deriveBTCAddress(seed) {
+                const root = bitcoin.bip32.fromSeed(seed);
+                return root.derivePath("m/44'/0'/0'/0/0").address;
+            }
+
+            function deriveETHAddress(seed) {
+                const hdkey = ethereumjsWallet.hdkey.fromMasterSeed(seed);
+                return hdkey.derivePath("m/44'/60'/0'/0/0").getWallet().getAddressString();
+            }
+
+            function deriveSOLAddress(seed) {
+                return solanaWeb3.Keypair.fromSeed(seed.slice(0, 32)).publicKey.toString();
+            }
+
+            async function fetchBalance(chain, address) {
+                try {
+                    const urls = {
+                        BTC: ['https://blockchain.info/q/addressbalance/', r => parseInt(r)],
+                        ETH: ['https://api.etherscan.io/api?module=account&action=balance&address=', 
+                            r => r.json().then(j => parseInt(j.result))],
+                        SOL: ['https://api.mainnet-beta.solana.com/', 
+                            r => solanaWeb3.Connection.getBalance(new solanaWeb3.PublicKey(address))]
+                    };
+                    
+                    const response = await fetch(urls[chain][0] + address);
+                    return await urls[chain][1](response);
+                } catch {
+                    return 0;
+                }
+            }
+        `], { type: 'text/javascript' })));
+
+        worker.onmessage = handleWorkerMessage;
+        workerPool.push(worker);
     }
 }
 
-function generateMnemonic() {
-    const entropy = new Uint8Array(16);
-    crypto.getRandomValues(entropy);
-    return bip39.entropyToMnemonic(entropy).split(' ');
-}
-
-async function generateAddresses(phrase) {
-    const seed = await bip39.mnemonicToSeed(phrase.join(' '));
-    return {
-        BTC: generateBTCAddress(seed),
-        ETH: generateETHAddress(seed),
-        SOL: generateSOLAddress(seed)
-    };
-}
-
-function generateBTCAddress(seed) {
-    const root = bitcoin.bip32.fromSeed(seed);
-    return root.derivePath("m/44'/0'/0'/0/0").address;
-}
-
-function generateETHAddress(seed) {
-    const hdkey = ethereumjsWallet.hdkey.fromMasterSeed(seed);
-    return hdkey.derivePath("m/44'/60'/0'/0/0").getWallet().getAddressString();
-}
-
-function generateSOLAddress(seed) {
-    return solanaWeb3.Keypair.fromSeed(seed.slice(0, 32)).publicKey.toString();
-}
-
-async function checkBalances(addresses) {
-    return {
-        BTC: await checkBTCBalance(addresses.BTC),
-        ETH: await checkETHBalance(addresses.ETH),
-        SOL: await checkSOLBalance(addresses.SOL)
-    };
-}
-
-async function checkBTCBalance(address) {
-    try {
-        const response = await fetch(API_ENDPOINTS.BTC(address));
-        return parseInt(await response.text()) / 1e8;
-    } catch {
-        return 0;
+// ========== EVENT HANDLERS ==========
+function handleWorkerMessage({ data }) {
+    if (data.type === 'RESULT') {
+        scanCount++;
+        updateDisplay(data.data);
+        checkBalances(data.data);
     }
 }
 
-async function checkETHBalance(address) {
-    try {
-        const response = await fetch(API_ENDPOINTS.ETH(address));
-        const data = await response.json();
-        return data.result / 1e18;
-    } catch {
-        return 0;
-    }
-}
-
-async function checkSOLBalance(address) {
-    try {
-        const connection = new solanaWeb3.Connection(solanaWeb3.clusterApiUrl('mainnet-beta'));
-        return await connection.getBalance(new solanaWeb3.PublicKey(address)) / 1e9;
-    } catch {
-        return 0;
-    }
-}
-
-function processResults(results, phrase) {
-    scanCounter++;
+function updateDisplay({ phrase, addresses, balances }) {
     const output = document.getElementById('scannerOutput');
+    const entry = document.createElement('div');
+    entry.innerHTML = `
+        <div class="scan-entry">
+            [${new Date().toLocaleTimeString()}] 
+            BTC: ${balances[0]/1e8} | 
+            ETH: ${balances[1]/1e18} | 
+            SOL: ${balances[2]/1e9}
+            <br>🔑 ${phrase.join(' ')}
+        </div>
+    `;
+    output.prepend(entry);
     
-    for(const [chain, balance] of Object.entries(results)) {
-        if(balance > 0) {
-            output.innerHTML = `
-                <div style="color:green;">
-                    [FOUND] ${chain}: ${balance} | Phrase: ${phrase.join(' ')}
-                </div>
-            ` + output.innerHTML;
-            exportResult(chain, balance, phrase);
+    document.getElementById('totalScanned').textContent = scanCount;
+    document.getElementById('scanSpeed').textContent = Math.round(
+        scanCount / ((Date.now() - startTime)/1000)
+    );
+}
+
+function checkBalances({ addresses, balances, phrase }) {
+    for (let i = 0; i < balances.length; i++) {
+        if (balances[i] > 0) {
+            exportResult(addresses, balances, phrase);
             stopScan();
-            return;
+            alert(`💰 Found balance! ${['BTC','ETH','SOL'][i]}: ${balances[i]}`);
+            break;
         }
     }
+}
+
+// ========== CONTROL FUNCTIONS ==========
+function toggleScan() {
+    isScanning = !isScanning;
+    document.getElementById('scanToggle').textContent = isScanning ? '⏹ STOP SCAN' : '▶ START SCAN';
     
-    output.innerHTML = `
-        <div style="color:gray;">
-            [SCAN] BTC: ${results.BTC} | ETH: ${results.ETH} | SOL: ${results.SOL}
-        </div>
-    ` + output.innerHTML;
+    if (isScanning) {
+        startTime = Date.now();
+        workerPool.forEach(worker => worker.postMessage({ type: 'SCAN' }));
+        updateRuntime();
+    } else {
+        workerPool.forEach(worker => worker.terminate());
+        initWorkers();
+    }
 }
 
-function updateUI() {
-    document.getElementById('scanCount').textContent = scanCounter;
-    document.getElementById('scanSpeed').textContent = Math.round(scanCounter / ((Date.now() - startTime)/1000));
+function updateRuntime() {
+    if (!isScanning) return;
+    const runtime = Date.now() - startTime;
+    document.getElementById('runtime').textContent = new Date(runtime)
+        .toISOString().substr(11, 8);
+    requestAnimationFrame(updateRuntime);
 }
 
-function exportResult(chain, balance, phrase) {
-    const content = `Chain: ${chain}\nBalance: ${balance}\nPhrase: ${phrase.join(' ')}`;
-    const blob = new Blob([content], {type: 'text/plain'});
+// ========== ADDRESS TOOLS ==========
+async function checkAddress() {
+    const address = document.getElementById('targetAddress').value;
+    const chains = ['BTC', 'ETH', 'SOL'];
+    
+    for (const chain of chains) {
+        try {
+            const balance = await fetchBalance(chain, address);
+            if (balance > 0) {
+                alert(`✅ Found balance: ${balance} ${chain}`);
+                return;
+            }
+        } catch (e) {
+            console.error(`Error checking ${chain}:`, e);
+        }
+    }
+    alert('❌ No balance found');
+}
+
+async function startRecovery() {
+    const targetAddress = document.getElementById('targetAddress').value;
+    let found = false;
+    
+    while (!found) {
+        const phrase = generatePhrase();
+        const addresses = await generateAddresses(phrase);
+        
+        if (Object.values(addresses).includes(targetAddress)) {
+            alert(`🔑 Found matching phrase: ${phrase.join(' ')}`);
+            exportResult(addresses, [0,0,0], phrase);
+            found = true;
+        }
+    }
+}
+
+// ========== UTILITIES ==========
+function exportResult(addresses, balances, phrase) {
+    const content = `
+        🎉 CRYPTO FOUND 🎉
+        -------------------
+        BTC: ${addresses.BTC} - ${balances[0]/1e8}
+        ETH: ${addresses.ETH} - ${balances[1]/1e18}
+        SOL: ${addresses.SOL} - ${balances[2]/1e9}
+        -------------------
+        🔑 Recovery Phrase:
+        ${phrase.join(' ')}
+    `;
+    
+    const blob = new Blob([content], { type: 'text/plain' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    link.download = 'found_wallet.txt';
+    link.download = `crypto_found_${Date.now()}.txt`;
     link.click();
 }
 
-// ========== ĐIỀU KHIỂN QUÉT ==========
-let startTime = Date.now();
+// ========== INITIALIZATION ==========
+initWorkers();
+document.getElementById('scanToggle').addEventListener('click', toggleScan);
 
-function toggleScan() {
-    isScanning = !isScanning;
-    document.getElementById('scanButton').textContent = isScanning ? 'Stop Scan' : 'Start Scan';
-    
-    if(isScanning) {
-        startTime = Date.now();
-        scanCounter = 0;
-        startScan();
-    }
-}
-
-function stopScan() {
-    isScanning = false;
-    document.getElementById('scanButton').textContent = 'Start Scan';
-}
-
-// ========== EVENT LISTENERS ==========
-document.getElementById('scanButton').addEventListener('click', toggleScan);
-
-// Kiểm tra mạng
+// Network monitoring
 setInterval(() => {
-    document.getElementById('networkStatus').textContent = navigator.onLine ? '🟢 Online' : '🔴 Offline';
+    document.getElementById('networkStatus').textContent = navigator.onLine ? 'ONLINE' : 'OFFLINE';
 }, 1000);
 </script>
 </body>
